@@ -1,0 +1,126 @@
+PRECISION-RECALL CURVES VERSUS ROC CURVES
+
+Precision-recall curves and ROC curves are both standard tools for evaluating binary
+classifiers, but they serve different analytical purposes and excel under different
+conditions. A thorough understanding of both, including when to use each and how to
+interpret the differences, is essential for rigorous model selection and deployment
+decision-making in machine learning pipelines.
+
+
+PRECISION AND RECALL: DEFINITIONS
+
+Precision measures what fraction of all positive predictions made by the classifier are
+actually positive. It is computed as the number of true positives divided by the total
+number of predicted positives. High precision means that when the model says positive, it
+is usually right. Low precision means the model produces many false alarms.
+
+Recall, also called sensitivity or the true positive rate, measures what fraction of all
+actual positive instances are retrieved by the classifier. It is the number of true
+positives divided by the total number of actual positives. High recall means the model
+finds most of the positive cases. Low recall means many positives are missed.
+
+The precision-recall trade-off is fundamental: raising the classification threshold
+increases precision but reduces recall, because fewer predictions are made positive but
+those that are tend to be more reliable. Lowering the threshold increases recall by
+capturing more true positives at the cost of also accepting more false positives, which
+reduces precision.
+
+
+THE PRECISION-RECALL CURVE
+
+Like the ROC curve, the precision-recall curve is constructed by sweeping the
+classification threshold from high to low and recording the precision and recall at each
+threshold. The result is a curve in the precision-recall plane. A high-quality classifier
+maintains both high precision and high recall across a broad range of thresholds, producing
+a curve that bows toward the upper-right corner of the plot.
+
+A perfect classifier achieves precision of 1.0 and recall of 1.0 simultaneously for some
+threshold, placing the curve at the upper-right corner. A random classifier produces a
+curve that lies near the horizontal line representing the base rate, the fraction of
+positive instances in the dataset.
+
+
+AREA UNDER THE PRECISION-RECALL CURVE
+
+The Area Under the Precision-Recall Curve, often abbreviated AP for Average Precision, is
+computed as a numerical summary of the curve. It is commonly estimated as the weighted
+mean of precisions at each threshold, with the weight given by the increase in recall from
+the previous threshold. For perfectly ranked outputs, AP equals 1.0. For random outputs,
+AP equals the base rate, the fraction of positive samples in the dataset.
+
+A key property of AP is that its baseline value depends on class prevalence. With 10
+percent positive samples, a random classifier achieves AP of approximately 0.10 regardless
+of dataset size. This sensitivity to class balance is both a strength and a weakness: it
+makes AP a demanding and informative metric for rare-event problems, but it also makes AP
+scores incomparable across datasets with different prevalence rates.
+
+
+WHEN ROC IS MORE APPROPRIATE
+
+ROC curves and AUC are well suited for classification problems where both classes have
+roughly equal importance and the dataset is reasonably balanced. Because false positive
+rate is computed over the actual negative population, it remains stable even as the
+evaluation set grows, making AUC useful for comparing classifier ranking quality across
+experiments with consistent score distributions.
+
+ROC AUC is also appropriate when the downstream task involves ranking or prioritization
+rather than binary decision-making. In information retrieval, recommender systems, and
+risk scoring, the relative ordering of predictions matters more than the absolute
+calibration of probability values at any particular threshold. AUC directly measures this
+ranking quality.
+
+
+WHEN PRECISION-RECALL IS MORE APPROPRIATE
+
+Precision-recall analysis is more informative than ROC analysis when the positive class
+is rare relative to the negative class, a situation common in medical diagnosis, fraud
+detection, anomaly identification, and document retrieval. In highly imbalanced settings,
+AUC can be misleadingly optimistic.
+
+The reason is that false positive rate is computed over the negative population. When
+negatives are overwhelmingly common, even a large absolute number of false positives
+translates to a small false positive rate. The ROC curve therefore looks favorable even
+when the classifier produces far more false positives than true positives in absolute
+terms. Precision, which is computed over all predicted positives, directly reflects
+this absolute cost by dropping when false positives are numerous.
+
+As a concrete illustration, consider a dataset with 99 negatives and 1 positive. A
+classifier that flags 10 instances as positive, including the 1 true positive, achieves
+recall of 1.0 and a false positive rate of only 9/99, approximately 0.09. The ROC curve
+point looks excellent. However, precision is only 1/10, meaning 90 percent of its
+positive predictions are wrong, which precision-recall analysis exposes immediately.
+
+
+F1 SCORE AND THRESHOLD SELECTION
+
+The F1 score is the harmonic mean of precision and recall and provides a single-number
+summary of the precision-recall trade-off at a specific threshold. It equals zero when
+either precision or recall is zero and achieves its maximum of 1.0 when both are perfect.
+
+The harmonic mean penalizes extreme imbalance between precision and recall more severely
+than the arithmetic mean would. A classifier with recall of 0.99 and precision of 0.01
+achieves an arithmetic mean of 0.5 but an F1 score of approximately 0.02, correctly
+reflecting its very poor precision.
+
+Plotting F1 as a function of threshold allows selection of the operating point that
+maximizes the harmonic balance between precision and recall. This threshold selection
+procedure is equivalent to finding the point on the precision-recall curve with the
+highest F1 value.
+
+
+F-BETA SCORE FOR ASYMMETRIC COSTS
+
+When precision and recall should not be weighted equally, the F-beta score generalizes
+F1 by introducing a parameter beta that controls the relative importance of recall versus
+precision. With beta greater than 1, recall is weighted more heavily. With beta less than
+1, precision is favored. F2 and F0.5 are common choices in retrieval and filtering
+applications where one error type is notably costlier than the other.
+
+
+PRACTICAL RECOMMENDATION
+
+For balanced classification problems, ROC AUC is a good default metric. For imbalanced
+problems, especially those involving rare positive events, precision-recall AP provides a
+more honest and practically meaningful evaluation. Using both metrics in parallel, plotting
+both curves for candidate models, gives the most complete picture of classifier behavior
+and supports more confident deployment decisions.

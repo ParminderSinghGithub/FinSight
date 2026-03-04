@@ -1,0 +1,42 @@
+[
+  {
+    "query": "How does KMeans++ improve centroid initialization?",
+    "modality": "text",
+    "relevant_ids": ["text_016", "text_027", "text_026"]
+  },
+  {
+    "query": "What is the effect of eps in DBSCAN?",
+    "modality": "text",
+    "relevant_ids": ["text_010", "text_009", "text_007"]
+  },
+  {
+    "query": "How do you choose the number of clusters in KMeans?",
+    "modality": "text",
+    "relevant_ids": ["text_015", "text_018", "text_025"]
+  },
+  {
+    "query": "Explain L2 regularization in logistic regression.",
+    "modality": "text",
+    "relevant_ids": ["text_043", "text_041"]
+  },
+  {
+    "query": "Example of DBSCAN eps parameter tuning in Python",
+    "modality": "code",
+    "relevant_ids": ["code_000", "code_026"]
+  },
+  {
+    "query": "How to compute ROC curve using sklearn",
+    "modality": "code",
+    "relevant_ids": ["code_023", "code_013"]
+  },
+  {
+    "query": "DBSCAN clustering with noise points",
+    "modality": "image",
+    "relevant_ids": ["image_002", "image_003", "image_000"]
+  },
+  {
+    "query": "ROC curve visualization example",
+    "modality": "image",
+    "relevant_ids": ["image_008"]
+  }
+]
