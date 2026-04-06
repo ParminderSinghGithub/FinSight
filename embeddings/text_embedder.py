@@ -14,10 +14,12 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
+from config.settings import get_batch_size, get_device, get_model
+
 
 # BGE-large produces 1024-dim embeddings and ranks highly on MTEB benchmarks.
 # It is well-suited for asymmetric retrieval (short query vs. long document).
-MODEL_NAME = "BAAI/bge-large-en"
+MODEL_NAME = get_model("text_embedding")
 
 
 class TextEmbedder:
@@ -43,7 +45,7 @@ class TextEmbedder:
                         BAAI/bge-large-en.
         """
         self.model_name = model_name
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
         print(f"[TextEmbedder] Loading '{model_name}' on {self.device} ...")
         self.model = SentenceTransformer(model_name, device=self.device)
         print(f"[TextEmbedder] Ready. Embedding dim: {self.model.get_sentence_embedding_dimension()}")
@@ -53,7 +55,7 @@ class TextEmbedder:
     def encode(
         self,
         text_list: list[str],
-        batch_size: int = 16,
+        batch_size: int | None = None,
         show_progress: bool = False,
     ) -> np.ndarray:
         """
@@ -76,6 +78,9 @@ class TextEmbedder:
         if not text_list:
             return np.empty((0, self.model.get_sentence_embedding_dimension()),
                             dtype=np.float32)
+
+        if batch_size is None:
+            batch_size = get_batch_size()
 
         embeddings = self.model.encode(
             text_list,
@@ -103,7 +108,7 @@ class TextEmbedder:
             Float32 array of shape (1, embedding_dim), L2-normalised.
         """
         prefixed = f"Represent this sentence for searching relevant passages: {query}"
-        return self.encode([prefixed], batch_size=1)
+        return self.encode([prefixed], batch_size=get_batch_size())
 
     @property
     def embedding_dim(self) -> int:

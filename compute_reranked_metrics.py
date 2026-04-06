@@ -26,6 +26,7 @@ from embeddings.text_embedder import TextEmbedder
 from embeddings.code_embedder import CodeEmbedder
 from embeddings.image_embedder import ImageEmbedder
 from rerank.cross_encoder_reranker import CrossEncoderReranker, prepare_candidates
+from config.settings import get_path, get_rerank_top_k, get_retrieval_top_k
 from evaluation.retrieval_metrics import (
     precision_at_k,
     recall_at_k,
@@ -40,7 +41,7 @@ from evaluation.retrieval_metrics import (
 
 def load_evaluation_queries():
     """Load evaluation queries with ground-truth relevant_ids."""
-    query_file = Path("data/processed/evaluation_queries.json")
+    query_file = Path(get_path("data")) / "processed" / "evaluation_queries.json"
     if not query_file.exists():
         raise FileNotFoundError(f"Evaluation queries not found: {query_file}")
 
@@ -57,8 +58,8 @@ def load_indexes():
     idmaps = {}
 
     for modality in ["text", "code", "image"]:
-        index_path = Path(f"indexes/faiss_{modality}.index")
-        idmap_path = Path(f"indexes/faiss_{modality}_idmap.json")
+        index_path = Path(get_path("indexes")) / f"faiss_{modality}.index"
+        idmap_path = Path(get_path("indexes")) / f"faiss_{modality}_idmap.json"
 
         if not index_path.exists() or not idmap_path.exists():
             raise FileNotFoundError(
@@ -81,7 +82,7 @@ def load_chunk_stores():
     stores = {}
 
     for modality, filename in [("text", "chunked_text.json"), ("code", "chunked_code.json")]:
-        chunk_file = Path(f"data/processed/{filename}")
+        chunk_file = Path(get_path("data")) / "processed" / filename
         if not chunk_file.exists():
             raise FileNotFoundError(f"Chunk file not found: {chunk_file}")
 
@@ -222,7 +223,14 @@ def evaluate_reranked_retrieval(
         index = indexes[modality]
         idmap = idmaps[modality]
 
-        semantic_results = retrieve_semantic(query_text, modality, embedder, index, idmap, top_k=20)
+        semantic_results = retrieve_semantic(
+            query_text,
+            modality,
+            embedder,
+            index,
+            idmap,
+            top_k=get_rerank_top_k(),
+        )
 
         # ── Step 2-4: Selective reranking by modality ────────────────────────
 
@@ -233,14 +241,15 @@ def evaluate_reranked_retrieval(
                 semantic_results,
                 chunk_store,
                 reranker,
-                top_k=10,
+                top_k=get_rerank_top_k(),
             )
+            final_results = final_results[:get_retrieval_top_k()]
             print("Selection mode: code reranked top-10 from semantic top-20")
         elif modality == "text":
-            final_results = semantic_results[:10]
+            final_results = semantic_results[:get_retrieval_top_k()]
             print("Selection mode: text semantic top-10")
         else:
-            final_results = semantic_results[:10]
+            final_results = semantic_results[:get_retrieval_top_k()]
             print("Selection mode: image semantic top-10")
 
         # ── Step 5: Compute metrics ───────────────────────────────────────

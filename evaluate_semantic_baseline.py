@@ -24,13 +24,14 @@ from embeddings.text_embedder  import TextEmbedder   # noqa: E402
 from embeddings.code_embedder  import CodeEmbedder   # noqa: E402
 from embeddings.image_embedder import ImageEmbedder  # noqa: E402
 from indexing.faiss_index      import FaissIndex     # noqa: E402
+from config.settings           import get_batch_size, get_path, get_retrieval_top_k  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-QUERIES_FILE      = PROJECT_ROOT / "data" / "processed" / "evaluation_queries.json"
-
-INDEX_DIR         = PROJECT_ROOT / "indexes"
+DATA_DIR          = PROJECT_ROOT / Path(get_path("data"))
+INDEX_DIR         = PROJECT_ROOT / Path(get_path("indexes"))
+QUERIES_FILE      = DATA_DIR / "processed" / "evaluation_queries.json"
 TEXT_INDEX_PATH   = INDEX_DIR / "faiss_text.index"
 TEXT_IDMAP_PATH   = INDEX_DIR / "faiss_text_idmap.json"
 CODE_INDEX_PATH   = INDEX_DIR / "faiss_code.index"
@@ -38,7 +39,7 @@ CODE_IDMAP_PATH   = INDEX_DIR / "faiss_code_idmap.json"
 IMAGE_INDEX_PATH  = INDEX_DIR / "faiss_image.index"
 IMAGE_IDMAP_PATH  = INDEX_DIR / "faiss_image_idmap.json"
 
-TOP_K = 10
+TOP_K = get_retrieval_top_k()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -119,7 +120,7 @@ for i, entry in enumerate(queries, start=1):
 
     elif modality == "code":
         # CodeBERT: treat the query string like a short code snippet
-        vec = code_embedder.encode([query], batch_size=1)  # (1, 768)
+        vec = code_embedder.encode([query], batch_size=get_batch_size())  # (1, 768)
         index = code_index
 
     elif modality == "image":

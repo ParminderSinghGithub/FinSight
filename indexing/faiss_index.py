@@ -24,6 +24,8 @@ from pathlib import Path
 import faiss
 import numpy as np
 
+from config.settings import get_retrieval_top_k
+
 
 class FaissIndex:
     """
@@ -103,7 +105,7 @@ class FaissIndex:
     def search(
         self,
         query_vector: np.ndarray,
-        top_k: int = 5,
+        top_k: int | None = None,
     ) -> list[tuple[str, float]]:
         """
         Retrieve the top-k most similar vectors to a query.
@@ -127,6 +129,9 @@ class FaissIndex:
         """
         if self.index.ntotal == 0:
             return []
+
+        if top_k is None:
+            top_k = get_retrieval_top_k()
 
         # Ensure 2-D float32 C-contiguous layout
         qv = np.ascontiguousarray(query_vector, dtype=np.float32)

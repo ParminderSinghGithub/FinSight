@@ -15,14 +15,16 @@ from typing import Any
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
+from config.settings import get_device, get_model
+
 
 class RAGPipeline:
     """Generative layer for answering questions from retrieved chunks."""
 
-    def __init__(self, model_name: str = "google/flan-t5-base") -> None:
+    def __init__(self, model_name: str = get_model("llm")) -> None:
         """Load tokenizer and seq2seq model on the best available device."""
         self.model_name = model_name
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(self.device)

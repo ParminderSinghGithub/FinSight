@@ -28,6 +28,7 @@ from embeddings.code_embedder import CodeEmbedder
 from embeddings.image_embedder import ImageEmbedder
 from rerank.cross_encoder_reranker import CrossEncoderReranker, prepare_candidates
 from generation.rag_pipeline import RAGPipeline, prepare_text_chunks
+from config.settings import get_path, get_retrieval_top_k, get_rerank_top_k
 
 
 def load_indexes(index_dir: Path) -> tuple[dict[str, faiss.Index], dict[str, list[str]]]:
@@ -87,8 +88,8 @@ class FullRAGSystem:
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = project_root or Path(__file__).resolve().parent
-        self.index_dir = self.project_root / "indexes"
-        self.processed_dir = self.project_root / "data" / "processed"
+        self.index_dir = self.project_root / Path(get_path("indexes"))
+        self.processed_dir = self.project_root / Path(get_path("data")) / "processed"
 
         # 1) Load assets
         self.indexes, self.idmaps = load_indexes(self.index_dir)
@@ -121,8 +122,10 @@ class FullRAGSystem:
             return np.array([vec], dtype=np.float32)
         return vec.astype(np.float32)
 
-    def _retrieve_semantic(self, query: str, modality: str, top_k: int = 20) -> list[str]:
+    def _retrieve_semantic(self, query: str, modality: str, top_k: int | None = None) -> list[str]:
         """Retrieve top-k semantic chunk IDs from FAISS."""
+        if top_k is None:
+            top_k = get_retrieval_top_k()
         query_vec = self._embed_query(query, modality)
         _, indices = self.indexes[modality].search(query_vec, k=top_k)
         return [self.idmaps[modality][idx] for idx in indices[0]]
@@ -156,17 +159,22 @@ class FullRAGSystem:
         """
         if modality == "code":
             candidates = prepare_candidates(semantic_ids[:20], self.chunk_stores["code"])
-            reranked = self.reranker.rerank(query, candidates, top_k=3)
+            reranked = self.reranker.rerank(
+                query,
+                candidates,
+                top_k=get_rerank_top_k(),
+            )
             code_ids = [chunk_id for chunk_id, _ in reranked]
 
-            text_support = (supporting_text_ids or [])[:2]
+            text_support_limit = max(0, get_retrieval_top_k() - len(code_ids[:get_retrieval_top_k()]))
+            text_support = (supporting_text_ids or [])[:text_support_limit]
             combined = self._dedupe_keep_order(code_ids + text_support)
-            return combined[:5]
+            return combined[:get_retrieval_top_k()]
 
         if modality == "text":
-            return semantic_ids[:5]
+            return semantic_ids[:get_retrieval_top_k()]
 
-        return semantic_ids[:5]
+        return semantic_ids[:get_retrieval_top_k()]
 
     def _prepare_generation_chunks(self, chunk_ids: list[str], modality: str) -> list[dict[str, str]]:
         """
@@ -195,11 +203,15 @@ class FullRAGSystem:
         4) Generate answer
         5) Return query + answer + sources
         """
-        semantic_ids = self._retrieve_semantic(query, modality, top_k=20)
+        retrieval_top_k = get_retrieval_top_k()
+        rerank_top_k = get_rerank_top_k()
+
+        semantic_k = rerank_top_k if modality == "code" else retrieval_top_k
+        semantic_ids = self._retrieve_semantic(query, modality, top_k=semantic_k)
 
         supporting_text_ids = None
         if modality == "code":
-            supporting_text_ids = self._retrieve_semantic(query, "text", top_k=5)
+            supporting_text_ids = self._retrieve_semantic(query, "text", top_k=retrieval_top_k)
 
         final_ids = self._select_for_generation(
             query,
@@ -207,7 +219,8 @@ class FullRAGSystem:
             semantic_ids,
             supporting_text_ids=supporting_text_ids,
         )
-        generation_chunks = self._prepare_generation_chunks(final_ids, modality)
+        generation_limit = min(retrieval_top_k, 5)
+        generation_chunks = self._prepare_generation_chunks(final_ids[:generation_limit], modality)
 
         generation_result = self.generator.generate_answer(query, generation_chunks)
 

@@ -18,10 +18,12 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 
+from config.settings import get_batch_size, get_device, get_model
+
 
 # CodeBERT is pre-trained on code-docstring pairs across 6 languages.
 # 768-dim output.  Supports Python, Java, JavaScript, PHP, Ruby, Go.
-MODEL_NAME = "microsoft/codebert-base"
+MODEL_NAME = get_model("code_embedding")
 MAX_LENGTH = 512   # CodeBERT's maximum positional encoding length
 
 
@@ -49,7 +51,7 @@ class CodeEmbedder:
                         microsoft/codebert-base.
         """
         self.model_name = model_name
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
         print(f"[CodeEmbedder] Loading '{model_name}' on {self.device} ...")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name)
@@ -91,7 +93,7 @@ class CodeEmbedder:
     def encode(
         self,
         code_list: list[str],
-        batch_size: int = 8,
+        batch_size: int | None = None,
     ) -> np.ndarray:
         """
         Encode a list of code snippets into L2-normalised embedding vectors.
@@ -110,6 +112,9 @@ class CodeEmbedder:
         """
         if not code_list:
             return np.empty((0, self.embedding_dim), dtype=np.float32)
+
+        if batch_size is None:
+            batch_size = get_batch_size()
 
         all_embeddings = []
 

@@ -19,8 +19,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.metadata_schema import generate_unique_id  # noqa: E402
+from config.settings import get_chunk_size, get_path  # noqa: E402
 
-CHUNKED_TEXT_FILE = PROJECT_ROOT / "data" / "processed" / "chunked_text.json"
+CHUNKED_TEXT_FILE = PROJECT_ROOT / Path(get_path("data")) / "processed" / "chunked_text.json"
 
 
 # ── Token estimation ──────────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ def _save(records: list) -> None:
 
 def chunk_text_file(
     file_path: str | Path,
-    chunk_size: int = 512,
+    chunk_size: int | None = None,
     overlap_ratio: float = 0.2,
 ) -> list[dict]:
     """
@@ -165,6 +166,9 @@ def chunk_text_file(
     """
     file_path = Path(file_path).resolve()
     text = file_path.read_text(encoding="utf-8")
+
+    if chunk_size is None:
+        chunk_size = get_chunk_size()
 
     overlap = max(1, int(chunk_size * overlap_ratio))
     sections = split_into_sections(text)

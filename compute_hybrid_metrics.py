@@ -33,6 +33,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from retrieval.hybrid_search      import HybridSearchEngine  # noqa: E402
+from config.settings              import get_path, get_retrieval_top_k  # noqa: E402
 from evaluation.retrieval_metrics import (                   # noqa: E402
     precision_at_k,
     recall_at_k,
@@ -43,9 +44,10 @@ from evaluation.retrieval_metrics import (                   # noqa: E402
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-QUERIES_FILE = PROJECT_ROOT / "data" / "processed" / "evaluation_queries.json"
+DATA_DIR = PROJECT_ROOT / Path(get_path("data"))
+QUERIES_FILE = DATA_DIR / "processed" / "evaluation_queries.json"
 
-TOP_K   = 10   # retrieve this many candidates
+TOP_K   = get_retrieval_top_k()   # retrieve this many candidates
 P_K     = 3    # Precision cut-off
 R_K     = 5    # Recall cut-off
 NDCG_K  = 5    # NDCG cut-off

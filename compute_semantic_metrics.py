@@ -36,6 +36,7 @@ from embeddings.text_embedder         import TextEmbedder   # noqa: E402
 from embeddings.code_embedder         import CodeEmbedder   # noqa: E402
 from embeddings.image_embedder        import ImageEmbedder  # noqa: E402
 from indexing.faiss_index             import FaissIndex     # noqa: E402
+from config.settings                  import get_batch_size, get_path, get_retrieval_top_k  # noqa: E402
 from evaluation.retrieval_metrics     import (              # noqa: E402
     precision_at_k,
     recall_at_k,
@@ -46,10 +47,11 @@ from evaluation.retrieval_metrics     import (              # noqa: E402
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-QUERIES_FILE     = PROJECT_ROOT / "data" / "processed" / "evaluation_queries.json"
-INDEX_DIR        = PROJECT_ROOT / "indexes"
+DATA_DIR         = PROJECT_ROOT / Path(get_path("data"))
+INDEX_DIR        = PROJECT_ROOT / Path(get_path("indexes"))
+QUERIES_FILE     = DATA_DIR / "processed" / "evaluation_queries.json"
 
-TOP_K            = 10   # retrieve this many candidates
+TOP_K            = get_retrieval_top_k()   # retrieve this many candidates
 P_K              = 3    # Precision cut-off
 R_K              = 5    # Recall cut-off
 NDCG_K           = 5    # NDCG cut-off
@@ -73,7 +75,7 @@ def _embed(query: str, modality: str,
     if modality == "text":
         vec = te.encode_query(query)       # (1, 1024)
     elif modality == "code":
-        vec = ce.encode([query], batch_size=1)   # (1, 768)
+        vec = ce.encode([query], batch_size=get_batch_size())   # (1, 768)
     elif modality == "image":
         vec = ie.encode_text_query(query)  # (1, 512)
     else:

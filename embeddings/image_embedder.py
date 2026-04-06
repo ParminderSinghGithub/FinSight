@@ -22,10 +22,12 @@ import torch.nn.functional as F
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
+from config.settings import get_batch_size, get_device, get_model
+
 
 # CLIP ViT-B/32 is the standard lightweight CLIP checkpoint.
 # Vision embedding dim: 512.  Weights ~350 MB.
-MODEL_NAME = "openai/clip-vit-base-patch32"
+MODEL_NAME = get_model("image_embedding")
 
 
 class ImageEmbedder:
@@ -53,7 +55,7 @@ class ImageEmbedder:
                         openai/clip-vit-base-patch32.
         """
         self.model_name = model_name
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
         print(f"[ImageEmbedder] Loading '{model_name}' on {self.device} ...")
         self.processor = CLIPProcessor.from_pretrained(model_name)
         self.model = CLIPModel.from_pretrained(model_name)
@@ -90,7 +92,7 @@ class ImageEmbedder:
     def encode(
         self,
         image_paths: list[str | Path],
-        batch_size: int = 8,
+        batch_size: int | None = None,
     ) -> np.ndarray:
         """
         Encode a list of image file paths into L2-normalised embeddings.
@@ -112,6 +114,9 @@ class ImageEmbedder:
         """
         if not image_paths:
             return np.empty((0, self.embedding_dim), dtype=np.float32)
+
+        if batch_size is None:
+            batch_size = get_batch_size()
 
         all_embeddings = []
 

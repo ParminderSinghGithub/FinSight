@@ -53,6 +53,8 @@ from whoosh.writing import AsyncWriter
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from config.settings import get_batch_size, get_path, get_retrieval_top_k  # noqa: E402
+
 from embeddings.text_embedder  import TextEmbedder   # noqa: E402
 from embeddings.code_embedder  import CodeEmbedder   # noqa: E402
 from embeddings.image_embedder import ImageEmbedder  # noqa: E402
@@ -61,11 +63,12 @@ from indexing.faiss_index      import FaissIndex     # noqa: E402
 # ---------------------------------------------------------------------------
 # Default paths
 # ---------------------------------------------------------------------------
-INDEX_DIR            = PROJECT_ROOT / "indexes"
+INDEX_DIR            = PROJECT_ROOT / Path(get_path("indexes"))
 WHOOSH_TEXT_DIR      = INDEX_DIR / "whoosh_text"
 WHOOSH_CODE_DIR      = INDEX_DIR / "whoosh_code"
-CHUNKED_TEXT_FILE    = PROJECT_ROOT / "data" / "processed" / "chunked_text.json"
-CHUNKED_CODE_FILE    = PROJECT_ROOT / "data" / "processed" / "chunked_code.json"
+DATA_DIR             = PROJECT_ROOT / Path(get_path("data"))
+CHUNKED_TEXT_FILE    = DATA_DIR / "processed" / "chunked_text.json"
+CHUNKED_CODE_FILE    = DATA_DIR / "processed" / "chunked_code.json"
 FAISS_TEXT_INDEX     = INDEX_DIR / "faiss_text.index"
 FAISS_TEXT_IDMAP     = INDEX_DIR / "faiss_text_idmap.json"
 FAISS_CODE_INDEX     = INDEX_DIR / "faiss_code.index"
@@ -376,7 +379,7 @@ class HybridSearchEngine:
         self,
         query:    str,
         modality: str,
-        top_k:    int = 10,
+        top_k:    int | None = None,
     ) -> list[tuple[str, float]]:
         """
         Run hybrid retrieval for a query.
@@ -401,6 +404,9 @@ class HybridSearchEngine:
         """
         modality = modality.lower()
 
+        if top_k is None:
+            top_k = get_retrieval_top_k()
+
         if modality == "text":
             return self._hybrid_text_or_code(
                 query, top_k,
@@ -412,7 +418,7 @@ class HybridSearchEngine:
             return self._hybrid_text_or_code(
                 query, top_k,
                 faiss_index=self._code_faiss,
-                embed_fn=lambda q: self._code_emb.encode([q], batch_size=1),
+                embed_fn=lambda q: self._code_emb.encode([q], batch_size=get_batch_size()),
                 bm25_index=self._code_bm25,
             )
         elif modality == "image":

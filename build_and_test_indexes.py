@@ -30,14 +30,16 @@ from embeddings.text_embedder  import TextEmbedder   # noqa: E402
 from embeddings.code_embedder  import CodeEmbedder   # noqa: E402
 from embeddings.image_embedder import ImageEmbedder  # noqa: E402
 from indexing.faiss_index      import FaissIndex     # noqa: E402
+from config.settings           import get_batch_size, get_path, get_retrieval_top_k  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-CHUNKED_TEXT_FILE  = PROJECT_ROOT / "data" / "processed" / "chunked_text.json"
-CHUNKED_CODE_FILE  = PROJECT_ROOT / "data" / "processed" / "chunked_code.json"
-IMAGE_META_FILE    = PROJECT_ROOT / "data" / "processed" / "image_metadata.json"
-INDEX_DIR          = PROJECT_ROOT / "indexes"
+DATA_DIR           = PROJECT_ROOT / Path(get_path("data"))
+INDEX_DIR          = PROJECT_ROOT / Path(get_path("indexes"))
+CHUNKED_TEXT_FILE  = DATA_DIR / "processed" / "chunked_text.json"
+CHUNKED_CODE_FILE  = DATA_DIR / "processed" / "chunked_code.json"
+IMAGE_META_FILE    = DATA_DIR / "processed" / "image_metadata.json"
 
 INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -113,15 +115,15 @@ image_embedder = ImageEmbedder()
 banner("STEP 3 / 4  —  Generating embeddings")
 
 print(f"\nEncoding text chunks: {len(text_texts)}")
-text_vecs = text_embedder.encode(text_texts, batch_size=16)
+text_vecs = text_embedder.encode(text_texts, batch_size=get_batch_size())
 print(f"Text embedding shape: {text_vecs.shape}")
 
 print(f"\nEncoding code chunks: {len(code_texts)}")
-code_vecs = code_embedder.encode(code_texts, batch_size=8)
+code_vecs = code_embedder.encode(code_texts, batch_size=get_batch_size())
 print(f"Code embedding shape: {code_vecs.shape}")
 
 print(f"\nEncoding images: {len(image_paths)}")
-image_vecs = image_embedder.encode(image_paths, batch_size=8)
+image_vecs = image_embedder.encode(image_paths, batch_size=get_batch_size())
 print(f"Image embedding shape: {image_vecs.shape}")
 
 # Sanity-check norms (should all be ~1.0 for unit vectors)
@@ -167,7 +169,7 @@ banner("STEP 5 / 4  —  Semantic search test queries")
 TEXT_QUERY = "How does KMeans++ initialization reduce variance?"
 print(f"\nText query: {TEXT_QUERY}")
 text_q_vec = text_embedder.encode_query(TEXT_QUERY)          # (1, 1024)
-text_results = text_index.search(text_q_vec[0], top_k=3)
+text_results = text_index.search(text_q_vec[0], top_k=get_retrieval_top_k())
 print_results(text_results, TEXT_QUERY)
 
 # Enrich with snippet preview
@@ -182,8 +184,8 @@ for chunk_id, score in text_results:
 # ── Code query ────────────────────────────────────────────────────────────────
 CODE_QUERY = "DBSCAN eps parameter tuning example"
 print(f"\nCode query: {CODE_QUERY}")
-code_q_vec = code_embedder.encode([CODE_QUERY], batch_size=1)    # (1, 768)
-code_results = code_index.search(code_q_vec[0], top_k=3)
+code_q_vec = code_embedder.encode([CODE_QUERY], batch_size=get_batch_size())    # (1, 768)
+code_results = code_index.search(code_q_vec[0], top_k=get_retrieval_top_k())
 print_results(code_results, CODE_QUERY)
 
 print()
@@ -198,7 +200,7 @@ for chunk_id, score in code_results:
 IMAGE_QUERY = "DBSCAN clustering with noise"
 print(f"\nImage query: {IMAGE_QUERY}")
 img_q_vec = image_embedder.encode_text_query(IMAGE_QUERY)        # (1, 512)
-image_results = image_index.search(img_q_vec[0], top_k=3)
+image_results = image_index.search(img_q_vec[0], top_k=get_retrieval_top_k())
 print_results(image_results, IMAGE_QUERY)
 
 print()

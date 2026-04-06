@@ -18,8 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.metadata_schema import generate_unique_id  # noqa: E402
+from config.settings import get_path  # noqa: E402
 
-CHUNKED_CODE_FILE = PROJECT_ROOT / "data" / "processed" / "chunked_code.json"
+CHUNKED_CODE_FILE = PROJECT_ROOT / Path(get_path("data")) / "processed" / "chunked_code.json"
 
 
 # ── I/O helpers ───────────────────────────────────────────────────────────────
