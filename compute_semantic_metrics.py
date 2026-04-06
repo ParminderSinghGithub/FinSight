@@ -24,7 +24,10 @@ Run from project root:
 
 import json
 import sys
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -61,9 +64,7 @@ def load_json(path: Path):
 
 
 def section(title: str) -> None:
-    print(f"\n{'=' * 68}")
-    print(f"  {title}")
-    print(f"{'=' * 68}")
+    print(f"\n{title}")
 
 
 def _embed(query: str, modality: str,
@@ -136,7 +137,6 @@ header = (
     f"{'P@'+str(P_K):>5}  {'R@'+str(R_K):>5}  {'NDCG@'+str(NDCG_K):>7}  {'GT':>4}"
 )
 print(f"\n{header}")
-print(f"  {'-'*3}  {'-'*col_w}  {'-'*5}  {'-'*5}  {'-'*5}  {'-'*7}  {'-'*4}")
 
 for i, entry in enumerate(queries, start=1):
     query        = entry["query"]
@@ -172,7 +172,7 @@ for i, entry in enumerate(queries, start=1):
     # Truncate query for display
     q_display = query if len(query) <= col_w else query[:col_w - 3] + "..."
     print(
-        f"  {i:<3}  {q_display:<{col_w}}  {modality:<5}  "
+        f"{i:<3}  {q_display:<{col_w}}  {modality:<5}  "
         f"{p3_s:>5}  {r5_s:>5}  {n5_s:>7}  {gt_s:>4}"
     )
 
@@ -186,7 +186,7 @@ n = len(scored_queries)
 
 if n == 0:
     print(
-        "\n  No queries have ground-truth relevant_ids yet.\n"
+        "\nNo queries have ground-truth relevant_ids yet.\n"
         f"  Populate 'relevant_ids' in {QUERIES_FILE.relative_to(PROJECT_ROOT)}\n"
         "  and re-run this script."
     )
@@ -196,14 +196,12 @@ else:
     mean_n5   = sum(q["n5"] for q in scored_queries) / n
     mrr       = mean_reciprocal_rank(all_retrieved, all_relevant_mrr)
 
-    print(f"\n  Evaluated queries (with ground truth) : {n} / {len(queries)}")
+    print(f"\nEvaluated queries (with ground truth): {n} / {len(queries)}")
     print()
-    print(f"  {'Metric':<30}  {'Value':>8}")
-    print(f"  {'-'*30}  {'-'*8}")
-    print(f"  {'Mean Precision@'+str(P_K):<30}  {mean_p3:>8.4f}")
-    print(f"  {'Mean Recall@'+str(R_K):<30}  {mean_r5:>8.4f}")
-    print(f"  {'Mean NDCG@'+str(NDCG_K):<30}  {mean_n5:>8.4f}")
-    print(f"  {'MRR (over top-'+str(TOP_K)+')':<30}  {mrr:>8.4f}")
+    print(f"{'Metric':<30} {'Value':>8}")
+    print(f"{'Mean Precision@'+str(P_K):<30} {mean_p3:>8.4f}")
+    print(f"{'Mean Recall@'+str(R_K):<30} {mean_r5:>8.4f}")
+    print(f"{'Mean NDCG@'+str(NDCG_K):<30} {mean_n5:>8.4f}")
+    print(f"{'MRR (over top-'+str(TOP_K)+')':<30} {mrr:>8.4f}")
     print()
-
-print(f"{'=' * 68}\n")
+print()

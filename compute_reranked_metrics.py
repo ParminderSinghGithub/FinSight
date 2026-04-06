@@ -14,10 +14,13 @@ Compares against evaluation_queries.json with ground-truth relevant_ids.
 """
 
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
 import faiss
+
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 from embeddings.text_embedder import TextEmbedder
 from embeddings.code_embedder import CodeEmbedder
@@ -44,7 +47,7 @@ def load_evaluation_queries():
     with open(query_file) as f:
         queries = json.load(f)
 
-    print(f"✓ Loaded evaluation queries: {len(queries)} queries")
+    print(f"Loaded evaluation queries: {len(queries)}")
     return queries
 
 
@@ -68,7 +71,7 @@ def load_indexes():
 
         indexes[modality] = index
         idmaps[modality] = idmap
-        print(f"✓ Loaded FAISS {modality} index: {index.ntotal} vectors")
+        print(f"Loaded FAISS {modality} index vectors: {index.ntotal}")
 
     return indexes, idmaps
 
@@ -86,7 +89,7 @@ def load_chunk_stores():
             chunks = json.load(f)
 
         stores[modality] = chunks
-        print(f"✓ Loaded {modality} chunks: {len(chunks)} chunks")
+        print(f"Loaded {modality} chunks: {len(chunks)}")
 
     return stores
 
@@ -201,9 +204,7 @@ def evaluate_reranked_retrieval(
     all_retrieved_for_mrr = []
     all_relevant_for_mrr = []
 
-    print("\n" + "=" * 80)
-    print("EVALUATION: Semantic Retrieval + Reranking")
-    print("=" * 80)
+    print("\nEvaluation: Semantic Retrieval + Reranking")
 
     for i, query_obj in enumerate(queries, start=1):
         query_id = f"Q{i}"
@@ -211,7 +212,9 @@ def evaluate_reranked_retrieval(
         modality = query_obj["modality"]
         relevant_ids = query_obj["relevant_ids"]
 
-        print(f"\n[{query_id}] {modality.upper()} — {query_text[:50]}...")
+        print(f"\nQuery ID: {query_id}")
+        print(f"Modality: {modality}")
+        print(f"Query: {query_text}")
 
         # ── Step 1: Semantic retrieval (top 20) ─────────────────────────────
 
@@ -232,13 +235,13 @@ def evaluate_reranked_retrieval(
                 reranker,
                 top_k=10,
             )
-            print("  → Code reranked top-10 (from semantic top-20)")
+            print("Selection mode: code reranked top-10 from semantic top-20")
         elif modality == "text":
             final_results = semantic_results[:10]
-            print("  → Text semantic top-10 (no reranking)")
+            print("Selection mode: text semantic top-10")
         else:
             final_results = semantic_results[:10]
-            print("  → Image semantic top-10 (no reranking)")
+            print("Selection mode: image semantic top-10")
 
         # ── Step 5: Compute metrics ───────────────────────────────────────
 
@@ -261,37 +264,33 @@ def evaluate_reranked_retrieval(
         all_retrieved_for_mrr.append(final_results)
         all_relevant_for_mrr.append(relevant_ids)
         # Print
-        print(f"  P@3  = {p3:.4f}")
-        print(f"  R@5  = {r5:.4f}")
-        print(f"  NDCG@5 = {ndcg5:.4f}")
-        print(f"  MRR  = {mean_reciprocal_rank([final_results], [relevant_ids]):.4f}")
+        print(f"Precision@3: {p3:.4f}")
+        print(f"Recall@5: {r5:.4f}")
+        print(f"NDCG@5: {ndcg5:.4f}")
+        print(f"MRR: {mean_reciprocal_rank([final_results], [relevant_ids]):.4f}")
 
     # ── Global metrics ────────────────────────────────────────────────────
 
-    print("\n" + "=" * 80)
-    print("GLOBAL METRICS")
-    print("=" * 80)
+    print("\nGlobal metrics")
 
     mean_p3 = np.mean(all_p3)
     mean_r5 = np.mean(all_r5)
     mean_ndcg5 = np.mean(all_ndcg5)
     mean_mrr = mean_reciprocal_rank(all_retrieved_for_mrr, all_relevant_for_mrr)
 
-    print(f"Mean P@3    = {mean_p3:.4f}")
-    print(f"Mean R@5    = {mean_r5:.4f}")
-    print(f"Mean NDCG@5 = {mean_ndcg5:.4f}")
-    print(f"Mean MRR    = {mean_mrr:.4f}")
+    print(f"Mean Precision@3: {mean_p3:.4f}")
+    print(f"Mean Recall@5: {mean_r5:.4f}")
+    print(f"Mean NDCG@5: {mean_ndcg5:.4f}")
+    print(f"Mean MRR: {mean_mrr:.4f}")
 
-    print("\n" + "=" * 80)
-    print("PER-QUERY RESULTS")
-    print("=" * 80)
+    print("\nPer-query results")
 
     for query_id, metrics in metrics_per_query.items():
-        print(f"\n{query_id}:")
-        print(f"  P@3     {metrics['p@3']:.4f}")
-        print(f"  R@5     {metrics['r@5']:.4f}")
-        print(f"  NDCG@5  {metrics['ndcg@5']:.4f}")
-        print(f"  Top-3   {metrics['retrieved']}")
+        print(f"\nQuery ID: {query_id}")
+        print(f"Precision@3: {metrics['p@3']:.4f}")
+        print(f"Recall@5: {metrics['r@5']:.4f}")
+        print(f"NDCG@5: {metrics['ndcg@5']:.4f}")
+        print(f"Top-3 sources: {', '.join(metrics['retrieved'])}")
 
     return {
         "global": {
@@ -309,18 +308,16 @@ def evaluate_reranked_retrieval(
 # ============================================================================
 
 if __name__ == "__main__":
-    print("\n" + "=" * 80)
-    print("Compute Reranked Retrieval Metrics")
-    print("=" * 80)
+    print("\nCompute Reranked Retrieval Metrics")
 
     # Load data
-    print("\n[SETUP] Loading evaluation data...")
+    print("\nSetup: loading evaluation data")
     queries = load_evaluation_queries()
     indexes, idmaps = load_indexes()
     chunk_stores = load_chunk_stores()
 
     # Instantiate models
-    print("\n[SETUP] Instantiating embedders and reranker...")
+    print("\nSetup: instantiating embedders and reranker")
     embedders = {
         "text": TextEmbedder(),
         "code": CodeEmbedder(),
@@ -338,4 +335,4 @@ if __name__ == "__main__":
         reranker,
     )
 
-    print("\n✓ Evaluation complete!")
+    print("\nEvaluation complete")
