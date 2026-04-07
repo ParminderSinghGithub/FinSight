@@ -316,7 +316,7 @@ def evaluate_reranked_retrieval(
 # Main
 # ============================================================================
 
-if __name__ == "__main__":
+def main() -> dict:
     print("\nCompute Reranked Retrieval Metrics")
 
     # Load data
@@ -345,3 +345,7 @@ if __name__ == "__main__":
     )
 
     print("\nEvaluation complete")
+    return results
+
+if __name__ == "__main__":
+    main()

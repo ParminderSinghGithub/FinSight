@@ -65,97 +65,96 @@ def section(title: str) -> None:
     print(f"\n{title}")
 
 
-# ---------------------------------------------------------------------------
-# 1 – Load queries
-# ---------------------------------------------------------------------------
+def main() -> None:
+    # -----------------------------------------------------------------------
+    # 1 – Load queries
+    # -----------------------------------------------------------------------
+    queries = load_json(QUERIES_FILE)
+    print(f"\nLoaded {len(queries)} evaluation queries from {QUERIES_FILE.name}")
 
-queries = load_json(QUERIES_FILE)
-print(f"\nLoaded {len(queries)} evaluation queries from {QUERIES_FILE.name}")
+    # -----------------------------------------------------------------------
+    # 2 – Instantiate hybrid engine (BM25 indexes must already exist)
+    # -----------------------------------------------------------------------
+    engine = HybridSearchEngine.from_disk(rebuild_bm25=False)
 
-# ---------------------------------------------------------------------------
-# 2 – Instantiate hybrid engine (BM25 indexes must already exist on disk)
-# ---------------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # 3 – Retrieve and compute per-query metrics
+    # -----------------------------------------------------------------------
+    section(f"Per-query metrics  (P@{P_K} | R@{R_K} | NDCG@{NDCG_K})")
 
-engine = HybridSearchEngine.from_disk(rebuild_bm25=False)
+    scored_queries    = []
+    all_retrieved     = []
+    all_relevant_mrr  = []
 
-# ---------------------------------------------------------------------------
-# 3 – Retrieve and compute per-query metrics
-# ---------------------------------------------------------------------------
+    col_w = 46
+    header = (
+        f"  {'#':<3}  {'Query':<{col_w}}  {'Mod':<5}  "
+        f"{'P@'+str(P_K):>5}  {'R@'+str(R_K):>5}  {'NDCG@'+str(NDCG_K):>7}  {'GT':>4}"
+    )
+    print(f"\n{header}")
 
-section(f"Per-query metrics  (P@{P_K} | R@{R_K} | NDCG@{NDCG_K})")
+    for i, entry in enumerate(queries, start=1):
+        query        = entry["query"]
+        modality     = entry["modality"].lower()
+        relevant_ids = entry.get("relevant_ids", [])
 
-scored_queries    = []
-all_retrieved     = []
-all_relevant_mrr  = []
+        hits          = engine.search(query, modality=modality, top_k=TOP_K)
+        retrieved_ids = [chunk_id for chunk_id, _ in hits]
 
-COL_W = 46
-header = (
-    f"  {'#':<3}  {'Query':<{COL_W}}  {'Mod':<5}  "
-    f"{'P@'+str(P_K):>5}  {'R@'+str(R_K):>5}  {'NDCG@'+str(NDCG_K):>7}  {'GT':>4}"
-)
-print(f"\n{header}")
+        has_gt = bool(relevant_ids)
 
-for i, entry in enumerate(queries, start=1):
-    query        = entry["query"]
-    modality     = entry["modality"].lower()
-    relevant_ids = entry.get("relevant_ids", [])
+        if has_gt:
+            p3 = precision_at_k(retrieved_ids, relevant_ids, k=P_K)
+            r5 = recall_at_k(retrieved_ids,    relevant_ids, k=R_K)
+            n5 = ndcg_at_k(retrieved_ids,      relevant_ids, k=NDCG_K)
 
-    # ── Hybrid retrieval ─────────────────────────────────────────────────
-    hits          = engine.search(query, modality=modality, top_k=TOP_K)
-    retrieved_ids = [chunk_id for chunk_id, _ in hits]
+            scored_queries.append({"p3": p3, "r5": r5, "n5": n5})
+            all_retrieved.append(retrieved_ids)
+            all_relevant_mrr.append(relevant_ids)
 
-    # ── Metrics ───────────────────────────────────────────────────────────
-    has_gt = bool(relevant_ids)
+            p3_s = f"{p3:.3f}"
+            r5_s = f"{r5:.3f}"
+            n5_s = f"{n5:.3f}"
+            gt_s = str(len(relevant_ids))
+        else:
+            p3_s = r5_s = n5_s = "  n/a"
+            gt_s = "none"
 
-    if has_gt:
-        p3 = precision_at_k(retrieved_ids, relevant_ids, k=P_K)
-        r5 = recall_at_k(retrieved_ids,    relevant_ids, k=R_K)
-        n5 = ndcg_at_k(retrieved_ids,      relevant_ids, k=NDCG_K)
+        q_display = query if len(query) <= col_w else query[:col_w - 3] + "..."
+        print(
+            f"{i:<3}  {q_display:<{col_w}}  {modality:<5}  "
+            f"{p3_s:>5}  {r5_s:>5}  {n5_s:>7}  {gt_s:>4}"
+        )
 
-        scored_queries.append({"p3": p3, "r5": r5, "n5": n5})
-        all_retrieved.append(retrieved_ids)
-        all_relevant_mrr.append(relevant_ids)
+    # -----------------------------------------------------------------------
+    # 4 – Global aggregates
+    # -----------------------------------------------------------------------
+    section("Global metrics  (hybrid retrieval)")
 
-        p3_s = f"{p3:.3f}"
-        r5_s = f"{r5:.3f}"
-        n5_s = f"{n5:.3f}"
-        gt_s = str(len(relevant_ids))
+    n = len(scored_queries)
+
+    if n == 0:
+        print(
+            "\nNo queries have ground-truth relevant_ids yet.\n"
+            f"  Populate 'relevant_ids' in {QUERIES_FILE.relative_to(PROJECT_ROOT)}\n"
+            "  and re-run this script."
+        )
     else:
-        p3_s = r5_s = n5_s = "  n/a"
-        gt_s = "none"
+        mean_p3 = sum(q["p3"] for q in scored_queries) / n
+        mean_r5 = sum(q["r5"] for q in scored_queries) / n
+        mean_n5 = sum(q["n5"] for q in scored_queries) / n
+        mrr     = mean_reciprocal_rank(all_retrieved, all_relevant_mrr)
 
-    q_display = query if len(query) <= COL_W else query[:COL_W - 3] + "..."
-    print(
-        f"{i:<3}  {q_display:<{COL_W}}  {modality:<5}  "
-        f"{p3_s:>5}  {r5_s:>5}  {n5_s:>7}  {gt_s:>4}"
-    )
-
-# ---------------------------------------------------------------------------
-# 4 – Global aggregates
-# ---------------------------------------------------------------------------
-
-section("Global metrics  (hybrid retrieval)")
-
-n = len(scored_queries)
-
-if n == 0:
-    print(
-        "\nNo queries have ground-truth relevant_ids yet.\n"
-        f"  Populate 'relevant_ids' in {QUERIES_FILE.relative_to(PROJECT_ROOT)}\n"
-        "  and re-run this script."
-    )
-else:
-    mean_p3 = sum(q["p3"] for q in scored_queries) / n
-    mean_r5 = sum(q["r5"] for q in scored_queries) / n
-    mean_n5 = sum(q["n5"] for q in scored_queries) / n
-    mrr     = mean_reciprocal_rank(all_retrieved, all_relevant_mrr)
-
-    print(f"\nEvaluated queries (with ground truth): {n} / {len(queries)}")
+        print(f"\nEvaluated queries (with ground truth): {n} / {len(queries)}")
+        print()
+        print(f"{'Metric':<30} {'Value':>8}")
+        print(f"{'Mean Precision@'+str(P_K):<30} {mean_p3:>8.4f}")
+        print(f"{'Mean Recall@'+str(R_K):<30} {mean_r5:>8.4f}")
+        print(f"{'Mean NDCG@'+str(NDCG_K):<30} {mean_n5:>8.4f}")
+        print(f"{'MRR (over top-'+str(TOP_K)+')':<30} {mrr:>8.4f}")
+        print()
     print()
-    print(f"{'Metric':<30} {'Value':>8}")
-    print(f"{'Mean Precision@'+str(P_K):<30} {mean_p3:>8.4f}")
-    print(f"{'Mean Recall@'+str(R_K):<30} {mean_r5:>8.4f}")
-    print(f"{'Mean NDCG@'+str(NDCG_K):<30} {mean_n5:>8.4f}")
-    print(f"{'MRR (over top-'+str(TOP_K)+')':<30} {mrr:>8.4f}")
-    print()
-print()
+
+
+if __name__ == "__main__":
+    main()

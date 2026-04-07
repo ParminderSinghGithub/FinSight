@@ -90,120 +90,116 @@ def _index_for(modality: str,
     return {"text": text_idx, "code": code_idx, "image": image_idx}[modality]
 
 
-# ---------------------------------------------------------------------------
-# 1 – Load queries
-# ---------------------------------------------------------------------------
+def main() -> None:
+    # -----------------------------------------------------------------------
+    # 1 – Load queries
+    # -----------------------------------------------------------------------
+    queries = load_json(QUERIES_FILE)
+    print(f"\nLoaded {len(queries)} evaluation queries.")
 
-queries = load_json(QUERIES_FILE)
-print(f"\nLoaded {len(queries)} evaluation queries.")
+    # -----------------------------------------------------------------------
+    # 2 – Load FAISS indexes
+    # -----------------------------------------------------------------------
+    section("Loading FAISS indexes")
 
-# ---------------------------------------------------------------------------
-# 2 – Load FAISS indexes
-# ---------------------------------------------------------------------------
+    text_index  = FaissIndex(embedding_dim=1024)
+    text_index.load(INDEX_DIR / "faiss_text.index",  INDEX_DIR / "faiss_text_idmap.json")
 
-section("Loading FAISS indexes")
+    code_index  = FaissIndex(embedding_dim=768)
+    code_index.load(INDEX_DIR / "faiss_code.index",  INDEX_DIR / "faiss_code_idmap.json")
 
-text_index  = FaissIndex(embedding_dim=1024)
-text_index.load(INDEX_DIR / "faiss_text.index",  INDEX_DIR / "faiss_text_idmap.json")
+    image_index = FaissIndex(embedding_dim=512)
+    image_index.load(INDEX_DIR / "faiss_image.index", INDEX_DIR / "faiss_image_idmap.json")
 
-code_index  = FaissIndex(embedding_dim=768)
-code_index.load(INDEX_DIR / "faiss_code.index",  INDEX_DIR / "faiss_code_idmap.json")
+    # -----------------------------------------------------------------------
+    # 3 – Load embedders
+    # -----------------------------------------------------------------------
+    section("Loading embedders")
 
-image_index = FaissIndex(embedding_dim=512)
-image_index.load(INDEX_DIR / "faiss_image.index", INDEX_DIR / "faiss_image_idmap.json")
+    text_embedder  = TextEmbedder()
+    code_embedder  = CodeEmbedder()
+    image_embedder = ImageEmbedder()
 
-# ---------------------------------------------------------------------------
-# 3 – Load embedders
-# ---------------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # 4 – Retrieve and compute per-query metrics
+    # -----------------------------------------------------------------------
+    section(f"Per-query metrics  (P@{P_K} | R@{R_K} | NDCG@{NDCG_K})")
 
-section("Loading embedders")
+    scored_queries   = []
+    all_retrieved    = []
+    all_relevant_mrr = []
 
-text_embedder  = TextEmbedder()
-code_embedder  = CodeEmbedder()
-image_embedder = ImageEmbedder()
+    col_w = 46
+    header = (
+        f"  {'#':<3}  {'Query':<{col_w}}  {'Mod':<5}  "
+        f"{'P@'+str(P_K):>5}  {'R@'+str(R_K):>5}  {'NDCG@'+str(NDCG_K):>7}  {'GT':>4}"
+    )
+    print(f"\n{header}")
 
-# ---------------------------------------------------------------------------
-# 4 – Retrieve and compute per-query metrics
-# ---------------------------------------------------------------------------
+    for i, entry in enumerate(queries, start=1):
+        query        = entry["query"]
+        modality     = entry["modality"].lower()
+        relevant_ids = entry.get("relevant_ids", [])
 
-section(f"Per-query metrics  (P@{P_K} | R@{R_K} | NDCG@{NDCG_K})")
+        vec   = _embed(query, modality, text_embedder, code_embedder, image_embedder)
+        idx   = _index_for(modality, text_index, code_index, image_index)
+        hits  = idx.search(vec, top_k=TOP_K)
+        retrieved_ids = [chunk_id for chunk_id, _ in hits]
 
-# Accumulators for global aggregates
-scored_queries   = []    # entries that have relevant_ids
-all_retrieved    = []    # for MRR — includes every scored query
-all_relevant_mrr = []
+        has_gt = bool(relevant_ids)
 
-col_w = 46   # query column width
-header = (
-    f"  {'#':<3}  {'Query':<{col_w}}  {'Mod':<5}  "
-    f"{'P@'+str(P_K):>5}  {'R@'+str(R_K):>5}  {'NDCG@'+str(NDCG_K):>7}  {'GT':>4}"
-)
-print(f"\n{header}")
+        if has_gt:
+            p3    = precision_at_k(retrieved_ids, relevant_ids, k=P_K)
+            r5    = recall_at_k(retrieved_ids,    relevant_ids, k=R_K)
+            n5    = ndcg_at_k(retrieved_ids,      relevant_ids, k=NDCG_K)
 
-for i, entry in enumerate(queries, start=1):
-    query        = entry["query"]
-    modality     = entry["modality"].lower()
-    relevant_ids = entry.get("relevant_ids", [])
+            scored_queries.append({"p3": p3, "r5": r5, "n5": n5})
+            all_retrieved.append(retrieved_ids)
+            all_relevant_mrr.append(relevant_ids)
 
-    # ── Embed + retrieve ──────────────────────────────────────────────────
-    vec   = _embed(query, modality, text_embedder, code_embedder, image_embedder)
-    idx   = _index_for(modality, text_index, code_index, image_index)
-    hits  = idx.search(vec, top_k=TOP_K)
-    retrieved_ids = [chunk_id for chunk_id, _ in hits]
+            p3_s  = f"{p3:.3f}"
+            r5_s  = f"{r5:.3f}"
+            n5_s  = f"{n5:.3f}"
+            gt_s  = str(len(relevant_ids))
+        else:
+            p3_s = r5_s = n5_s = "  n/a"
+            gt_s = "none"
 
-    # ── Metrics ───────────────────────────────────────────────────────────
-    has_gt = bool(relevant_ids)
+        q_display = query if len(query) <= col_w else query[:col_w - 3] + "..."
+        print(
+            f"{i:<3}  {q_display:<{col_w}}  {modality:<5}  "
+            f"{p3_s:>5}  {r5_s:>5}  {n5_s:>7}  {gt_s:>4}"
+        )
 
-    if has_gt:
-        p3    = precision_at_k(retrieved_ids, relevant_ids, k=P_K)
-        r5    = recall_at_k(retrieved_ids,    relevant_ids, k=R_K)
-        n5    = ndcg_at_k(retrieved_ids,      relevant_ids, k=NDCG_K)
+    # -----------------------------------------------------------------------
+    # 5 – Global aggregates
+    # -----------------------------------------------------------------------
+    section("Global metrics")
 
-        scored_queries.append({"p3": p3, "r5": r5, "n5": n5})
-        all_retrieved.append(retrieved_ids)
-        all_relevant_mrr.append(relevant_ids)
+    n = len(scored_queries)
 
-        p3_s  = f"{p3:.3f}"
-        r5_s  = f"{r5:.3f}"
-        n5_s  = f"{n5:.3f}"
-        gt_s  = str(len(relevant_ids))
+    if n == 0:
+        print(
+            "\nNo queries have ground-truth relevant_ids yet.\n"
+            f"  Populate 'relevant_ids' in {QUERIES_FILE.relative_to(PROJECT_ROOT)}\n"
+            "  and re-run this script."
+        )
     else:
-        p3_s = r5_s = n5_s = "  n/a"
-        gt_s = "none"
+        mean_p3   = sum(q["p3"] for q in scored_queries) / n
+        mean_r5   = sum(q["r5"] for q in scored_queries) / n
+        mean_n5   = sum(q["n5"] for q in scored_queries) / n
+        mrr       = mean_reciprocal_rank(all_retrieved, all_relevant_mrr)
 
-    # Truncate query for display
-    q_display = query if len(query) <= col_w else query[:col_w - 3] + "..."
-    print(
-        f"{i:<3}  {q_display:<{col_w}}  {modality:<5}  "
-        f"{p3_s:>5}  {r5_s:>5}  {n5_s:>7}  {gt_s:>4}"
-    )
-
-# ---------------------------------------------------------------------------
-# 5 – Global aggregates
-# ---------------------------------------------------------------------------
-
-section("Global metrics")
-
-n = len(scored_queries)
-
-if n == 0:
-    print(
-        "\nNo queries have ground-truth relevant_ids yet.\n"
-        f"  Populate 'relevant_ids' in {QUERIES_FILE.relative_to(PROJECT_ROOT)}\n"
-        "  and re-run this script."
-    )
-else:
-    mean_p3   = sum(q["p3"] for q in scored_queries) / n
-    mean_r5   = sum(q["r5"] for q in scored_queries) / n
-    mean_n5   = sum(q["n5"] for q in scored_queries) / n
-    mrr       = mean_reciprocal_rank(all_retrieved, all_relevant_mrr)
-
-    print(f"\nEvaluated queries (with ground truth): {n} / {len(queries)}")
+        print(f"\nEvaluated queries (with ground truth): {n} / {len(queries)}")
+        print()
+        print(f"{'Metric':<30} {'Value':>8}")
+        print(f"{'Mean Precision@'+str(P_K):<30} {mean_p3:>8.4f}")
+        print(f"{'Mean Recall@'+str(R_K):<30} {mean_r5:>8.4f}")
+        print(f"{'Mean NDCG@'+str(NDCG_K):<30} {mean_n5:>8.4f}")
+        print(f"{'MRR (over top-'+str(TOP_K)+')':<30} {mrr:>8.4f}")
+        print()
     print()
-    print(f"{'Metric':<30} {'Value':>8}")
-    print(f"{'Mean Precision@'+str(P_K):<30} {mean_p3:>8.4f}")
-    print(f"{'Mean Recall@'+str(R_K):<30} {mean_r5:>8.4f}")
-    print(f"{'Mean NDCG@'+str(NDCG_K):<30} {mean_n5:>8.4f}")
-    print(f"{'MRR (over top-'+str(TOP_K)+')':<30} {mrr:>8.4f}")
-    print()
-print()
+
+
+if __name__ == "__main__":
+    main()
