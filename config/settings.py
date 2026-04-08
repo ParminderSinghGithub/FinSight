@@ -6,12 +6,12 @@ class Config:
 
     PATHS = {
         "sample": {
-            "data": "data/",
+            "data": "data_sample/",
             "indexes": "indexes/",
         },
         "main": {
-            "data": "/kaggle/working/data/",
-            "indexes": "/kaggle/working/indexes/",
+            "data": "/kaggle/working/data_main/",
+            "indexes": "/kaggle/working/indexes_main/",
         },
     }
 

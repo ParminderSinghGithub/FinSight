@@ -30,8 +30,8 @@ def print_block(title: str) -> None:
 
 def main() -> None:
     # 1) Load chunk stores
-    text_store_path = Path("data/processed/chunked_text.json")
-    code_store_path = Path("data/processed/chunked_code.json")
+    text_store_path = Path("data_sample/processed/chunked_text.json")
+    code_store_path = Path("data_sample/processed/chunked_code.json")
 
     if not text_store_path.exists() or not code_store_path.exists():
         raise FileNotFoundError(

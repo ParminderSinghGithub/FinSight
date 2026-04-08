@@ -31,36 +31,41 @@ secrets.json
 indexes/faiss_text.index
 indexes/faiss_code.index
 indexes/faiss_image.index
+indexes_main/faiss_text.index
+indexes_main/faiss_code.index
+indexes_main/faiss_image.index
 
 # Whoosh BM25 indexes (regeneratable via HybridSearchEngine.from_disk(rebuild_bm25=True))
 indexes/whoosh_text/
 indexes/whoosh_code/
+indexes_main/whoosh_text/
+indexes_main/whoosh_code/
 
 # Keep the indexes/ directory itself tracked
 !indexes/.gitkeep
+!indexes_main/.gitkeep
 
 # =============================================================================
-# Generated processed data  (all regeneratable from raw sources)
+# Dataset contents (ignore all data files; track only directory structure)
 # =============================================================================
-data/processed/chunked_text.json
-data/processed/chunked_code.json
-data/processed/image_metadata.json
-data/processed/metadata.json
+data/**
+data_sample/**
+data_main/**
 
-# evaluation_queries.json is hand-labeled ground truth — DO NOT ignore
-# data/processed/evaluation_queries.json
+!data/**/
+!data/**/.gitkeep
 
-# =============================================================================
-# Generated raw images  (regeneratable via data_generation/generate_ml_visualizations.py)
-# =============================================================================
-data/raw/images/*.png
-data/raw/images/*.jpg
-data/raw/images/*.jpeg
+!data_sample/**/
+!data_sample/**/.gitkeep
+
+!data_main/**/
+!data_main/**/.gitkeep
 
 # =============================================================================
 # FAISS id-map JSON sidecars  (regeneratable alongside .index files)
 # =============================================================================
 indexes/faiss_*_idmap.json
+indexes_main/faiss_*_idmap.json
 
 # =============================================================================
 # HuggingFace / model caches  (large, downloaded on demand)

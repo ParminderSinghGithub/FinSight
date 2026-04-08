@@ -18,7 +18,7 @@ Typical usage:
     import json
 
     # Load chunk store
-    text_chunks = json.load(open("data/processed/chunked_text.json"))
+    text_chunks = json.load(open("data_sample/processed/chunked_text.json"))
 
     # Initial retrieval (e.g. from FAISS)
     initial_ids = ["text_016", "text_027", "text_026", ...]
@@ -171,7 +171,7 @@ def prepare_candidates(
     Args:
         chunk_ids:   List of chunk IDs to retrieve from the store.
         chunk_store: Loaded JSON list of chunk records (e.g. from
-                     data/processed/chunked_text.json).
+                     configured data directory processed/chunked_text.json).
 
     Returns:
         List of candidate dicts ready for reranking, in input order.

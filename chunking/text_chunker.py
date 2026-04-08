@@ -3,11 +3,11 @@ chunking/text_chunker.py
 
 Splits plain-text documents into overlapping chunks, keyed by ALL CAPS
 section headings.  Chunk metadata is appended to
-data/processed/chunked_text.json.
+the configured data directory's processed/chunked_text.json.
 
 Usage (from project root):
     from chunking.text_chunker import chunk_text_file
-    chunk_text_file("data/raw/text/dbscan_overview.txt")
+    chunk_text_file("data_sample/raw/text/dbscan_overview.txt")
 """
 
 import json
@@ -147,7 +147,7 @@ def chunk_text_file(
 ) -> list[dict]:
     """
     Read a plain-text file, split it into overlapping chunks, and persist
-    structured records to data/processed/chunked_text.json.
+    structured records to the configured data directory's processed/chunked_text.json.
 
     Chunking strategy:
         1. Split the document into sections at ALL CAPS headings.

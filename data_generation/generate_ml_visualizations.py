@@ -1,8 +1,8 @@
 """
 data_generation/generate_ml_visualizations.py
 
-Generates synthetic ML visualisation plots and saves them to data/raw/images/.
-Metadata for every saved image is appended to data/processed/image_metadata.json.
+Generates synthetic ML visualisation plots and saves them to data_main/raw/images/.
+Metadata for every saved image is appended to data_main/processed/image_metadata.json.
 
 Usage (from project root):
     python data_generation/generate_ml_visualizations.py
@@ -29,8 +29,8 @@ from sklearn.preprocessing import StandardScaler
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-IMAGES_DIR = PROJECT_ROOT / "data" / "raw" / "images"
-METADATA_FILE = PROJECT_ROOT / "data" / "processed" / "image_metadata.json"
+IMAGES_DIR = PROJECT_ROOT / "data_main" / "raw" / "images"
+METADATA_FILE = PROJECT_ROOT / "data_main" / "processed" / "image_metadata.json"
 
 # Add project root to sys.path so utils can be imported regardless of cwd
 sys.path.insert(0, str(PROJECT_ROOT))

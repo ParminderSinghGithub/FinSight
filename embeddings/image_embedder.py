@@ -11,7 +11,7 @@ same latent space as its text encoder, enabling cross-modal retrieval
 Typical usage:
     from embeddings.image_embedder import ImageEmbedder
     embedder = ImageEmbedder()
-    vectors = embedder.encode(["data/raw/images/roc_curve_example.png"])
+    vectors = embedder.encode(["data_sample/raw/images/roc_curve_example.png"])
 """
 
 from pathlib import Path

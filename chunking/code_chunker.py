@@ -3,11 +3,11 @@ chunking/code_chunker.py
 
 Splits Python source files into logical chunks: the top-level parameter
 block, individual functions (each with its docstring), and main().
-Chunk metadata is appended to data/processed/chunked_code.json.
+Chunk metadata is appended to the configured data directory's processed/chunked_code.json.
 
 Usage (from project root):
     from chunking.code_chunker import split_code_by_functions
-    split_code_by_functions("data/raw/code/dbscan_basic.py")
+    split_code_by_functions("data_sample/raw/code/dbscan_basic.py")
 """
 
 import json

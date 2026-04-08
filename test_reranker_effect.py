@@ -51,7 +51,7 @@ def load_code_index():
 
 def load_code_chunks():
     """Load chunked code from JSON."""
-    chunk_file = Path("data/processed/chunked_code.json")
+    chunk_file = Path("data_sample/processed/chunked_code.json")
 
     if not chunk_file.exists():
         raise FileNotFoundError(f"Chunk file not found: {chunk_file}")

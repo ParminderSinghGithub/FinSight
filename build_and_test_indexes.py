@@ -2,7 +2,7 @@
 build_and_test_indexes.py
 
 End-to-end script that:
-  1. Loads all chunked data from data/processed/
+    1. Loads all chunked data from the configured data directory's processed/
   2. Generates embeddings for text, code, and images
   3. Builds and saves three FAISS indexes
   4. Runs test semantic queries against each index

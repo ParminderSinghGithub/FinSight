@@ -126,7 +126,7 @@ def test_prepare_candidates():
     print("=" * 70)
 
     # Load real chunk store
-    chunk_file = Path("data/processed/chunked_text.json")
+    chunk_file = Path("data_sample/processed/chunked_text.json")
     if not chunk_file.exists():
         print(f"⚠  Skipping: {chunk_file} not found")
         return
