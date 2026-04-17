@@ -174,7 +174,12 @@ def _inject_styles() -> None:
 
 def initialize_rag_system() -> Any | None:
 	if "rag_system" in st.session_state:
-		return st.session_state["rag_system"]
+		existing_system = st.session_state["rag_system"]
+		if existing_system is not None:
+			return existing_system
+		# A previous attempt failed and stored None; retry on the next rerun.
+		st.session_state.pop("rag_system", None)
+		st.session_state.pop("rag_init_error", None)
 
 	try:
 		_configure_hf_cache()
