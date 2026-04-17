@@ -18,6 +18,11 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 
+try:
+    from tqdm.auto import tqdm
+except Exception:  # pragma: no cover
+    tqdm = None
+
 from config.settings import get_batch_size, get_device, get_model
 
 
@@ -117,8 +122,17 @@ class CodeEmbedder:
             batch_size = get_batch_size()
 
         all_embeddings = []
+        total_batches = (len(code_list) + batch_size - 1) // batch_size
+        iterator = range(0, len(code_list), batch_size)
+        if tqdm is not None:
+            iterator = tqdm(
+                iterator,
+                total=total_batches,
+                desc="Code embedding batches",
+                unit="batch",
+            )
 
-        for start in range(0, len(code_list), batch_size):
+        for batch_idx, start in enumerate(iterator, 1):
             batch = code_list[start: start + batch_size]
 
             encoded = self.tokenizer(
@@ -142,6 +156,9 @@ class CodeEmbedder:
             # L2 normalise so cosine similarity == dot product at retrieval time
             normalised = F.normalize(pooled, p=2, dim=1)
             all_embeddings.append(normalised.cpu().numpy())
+
+            if tqdm is None and (batch_idx == total_batches or batch_idx % 10 == 0):
+                print(f"[CodeEmbedder] Progress: {batch_idx}/{total_batches} batches", flush=True)
 
         return np.vstack(all_embeddings).astype(np.float32)
 

@@ -155,7 +155,7 @@ def _fill_text_code_from_faiss(queries: list[dict], top_n: int = 3) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Populate relevant_ids for evaluation queries")
-    parser.add_argument("--dataset", choices=["sample", "main"], default="main")
+    parser.add_argument("--dataset", choices=["sample", "main", "btp"], default="main")
     parser.add_argument("--top-n", type=int, default=3)
     args = parser.parse_args()
 
@@ -163,7 +163,12 @@ def main() -> None:
     data_dir = PROJECT_ROOT / Path(get_path("data"))
     # Local fallback when config points to Kaggle paths but script runs in repo.
     if not data_dir.exists():
-        fallback = PROJECT_ROOT / ("data_main" if args.dataset == "main" else "data_sample")
+        fallback_map = {
+            "sample": "data_sample",
+            "main": "data_main",
+            "btp": "data_btp",
+        }
+        fallback = PROJECT_ROOT / fallback_map[args.dataset]
         data_dir = fallback
     queries_path = data_dir / "processed" / "evaluation_queries.json"
     image_meta_path = data_dir / "processed" / "image_metadata.json"

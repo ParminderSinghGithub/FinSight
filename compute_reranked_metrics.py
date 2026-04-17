@@ -14,6 +14,7 @@ Compares against evaluation_queries.json with ground-truth relevant_ids.
 """
 
 import json
+import re
 import warnings
 from pathlib import Path
 
@@ -25,8 +26,9 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 from embeddings.text_embedder import TextEmbedder
 from embeddings.code_embedder import CodeEmbedder
 from embeddings.image_embedder import ImageEmbedder
-from rerank.cross_encoder_reranker import CrossEncoderReranker, prepare_candidates
+from rerank.cross_encoder_reranker import CrossEncoderReranker
 from config.settings import get_path, get_rerank_top_k, get_retrieval_top_k
+from retrieval.code_query_enhancements import apply_code_metadata_boost, normalize_code_query
 from evaluation.retrieval_metrics import (
     precision_at_k,
     recall_at_k,
@@ -106,7 +108,7 @@ def retrieve_semantic(
     index,
     idmap,
     top_k: int = 20,
-) -> list[str]:
+) -> list[tuple[str, float]]:
     """
     Retrieve top-k chunk IDs using semantic search.
 
@@ -119,7 +121,7 @@ def retrieve_semantic(
         top_k: Number of results to retrieve
 
     Returns:
-        List of chunk IDs, sorted by similarity (descending)
+        List of (chunk_id, score), sorted by similarity (descending)
     """
     # Embed query
     # Determine embedder type and use appropriate method
@@ -128,7 +130,8 @@ def retrieve_semantic(
     elif modality == "text":
         query_emb = embedder.encode_query(query)
     elif modality == "code":
-        query_emb = embedder.encode([query])[0]
+        expanded_query = normalize_code_query(query)
+        query_emb = embedder.encode([expanded_query])[0]
     else:
         raise ValueError(f"Unknown modality: {modality}")
 
@@ -142,12 +145,93 @@ def retrieve_semantic(
     distances, indices = index.search(query_emb, k=top_k)
 
     # Map indices to chunk IDs
-    chunk_ids = [idmap[idx] for idx in indices[0]]
-    return chunk_ids
+    results: list[tuple[str, float]] = []
+    for idx, score in zip(indices[0], distances[0]):
+        if idx >= 0 and idx < len(idmap):
+            results.append((idmap[idx], float(score)))
+    return results
 
 
 # ============================================================================
-# Reranking (for code only)
+# Lightweight code relevance filtering
+# ============================================================================
+
+def filter_code_by_query_match(
+    query: str,
+    chunk_ids: list[str],
+    chunk_store: list[dict],
+    min_keep: int = 10,
+) -> list[str]:
+    """
+    Filter code chunks to keep only those containing at least one query word.
+
+    Simple string matching: extracts query words (lowercase, split on whitespace)
+    and checks if ANY appear in the code text.
+
+    Args:
+        query: Query string
+        chunk_ids: List of chunk IDs from semantic retrieval
+        chunk_store: Loaded JSON chunk store
+
+    Returns:
+        Filtered list of chunk IDs (or original if filtering removes all).
+        Order preserved from input.
+    """
+    # Build lookup map
+    store_map = {chunk["chunk_id"]: chunk for chunk in chunk_store}
+
+    # Extract query words (lowercase, tokenized)
+    query_words = set(re.findall(r"[a-z0-9_]+", query.lower()))
+
+    # Filter
+    filtered = []
+    for chunk_id in chunk_ids:
+        if chunk_id not in store_map:
+            continue
+
+        chunk_text = store_map[chunk_id].get("code", "").lower()
+
+        # Check if ANY query word appears in chunk text
+        if any(word in chunk_text for word in query_words):
+            filtered.append(chunk_id)
+
+    # Fallback: always keep at least top semantic candidates to protect recall
+    result = list(filtered)
+    if len(result) < min_keep:
+        for chunk_id in chunk_ids:
+            if chunk_id not in result:
+                result.append(chunk_id)
+            if len(result) >= min_keep:
+                break
+
+    # If still empty (degenerate case), return original semantic list
+    return result if result else chunk_ids
+
+
+def prepare_candidates_safe(
+    chunk_ids: list[str],
+    chunk_store: list[dict],
+) -> list[dict]:
+    """Prepare reranker candidates while safely skipping missing/empty chunks."""
+    store_map = {chunk["chunk_id"]: chunk for chunk in chunk_store}
+
+    candidates = []
+    for chunk_id in chunk_ids:
+        chunk = store_map.get(chunk_id)
+        if chunk is None:
+            continue
+
+        text_content = (chunk.get("text") or chunk.get("code") or "").strip()
+        if not text_content:
+            continue
+
+        candidates.append({"chunk_id": chunk_id, "text": text_content})
+
+    return candidates
+
+
+# ============================================================================
+# Reranking (for text only — code and image use semantic)
 # ============================================================================
 
 def rerank_and_select(
@@ -171,10 +255,16 @@ def rerank_and_select(
         List of chunk IDs reranked and truncated to top_k
     """
     # Prepare candidates
-    candidates = prepare_candidates(chunk_ids, chunk_store)
+    candidates = prepare_candidates_safe(chunk_ids, chunk_store)
+
+    if not candidates:
+        return chunk_ids[:top_k]
 
     # Rerank
     reranked = reranker.rerank(query, candidates, top_k=top_k)
+
+    if not reranked:
+        return chunk_ids[:top_k]
 
     # Extract chunk IDs
     return [chunk_id for chunk_id, _ in reranked]
@@ -199,6 +289,7 @@ def evaluate_reranked_retrieval(
         Dictionary with per-query and global metrics.
     """
     metrics_per_query = {}
+    per_query_rows = []
     all_p3 = []
     all_r5 = []
     all_ndcg5 = []
@@ -231,26 +322,51 @@ def evaluate_reranked_retrieval(
             idmap,
             top_k=get_rerank_top_k(),
         )
+        semantic_ids = [chunk_id for chunk_id, _ in semantic_results]
 
         # ── Step 2-4: Selective reranking by modality ────────────────────────
 
         if modality == "code":
+            # For code: apply metadata-aware boost before final selection.
             chunk_store = chunk_stores["code"]
-            final_results = rerank_and_select(
+            code_meta_by_chunk_id = {
+                row.get("chunk_id"): row
+                for row in chunk_store
+                if row.get("chunk_id")
+            }
+            boosted_results = apply_code_metadata_boost(
                 query_text,
                 semantic_results,
+                code_meta_by_chunk_id,
+            )
+            boosted_ids = [chunk_id for chunk_id, _ in boosted_results]
+            filtered_results = filter_code_by_query_match(
+                query_text,
+                boosted_ids,
+                chunk_store,
+                min_keep=get_retrieval_top_k(),
+            )
+            final_results = filtered_results[:get_retrieval_top_k()]
+            print("Selection mode: code metadata-boosted + query filter (no reranking)")
+        elif modality == "text":
+            # For text: keep cross-encoder reranking
+            chunk_store = chunk_stores["text"]
+            reranked_results = rerank_and_select(
+                query_text,
+                semantic_ids,
                 chunk_store,
                 reranker,
-                top_k=get_rerank_top_k(),
+                top_k=get_retrieval_top_k(),
             )
-            final_results = final_results[:get_retrieval_top_k()]
-            print("Selection mode: code reranked top-10 from semantic top-20")
-        elif modality == "text":
-            final_results = semantic_results[:get_retrieval_top_k()]
-            print("Selection mode: text semantic top-10")
+            final_results = reranked_results[:get_retrieval_top_k()]
+            print("Selection mode: text reranked")
         else:
-            final_results = semantic_results[:get_retrieval_top_k()]
-            print("Selection mode: image semantic top-10")
+            # For image: use semantic results directly
+            final_results = semantic_ids[:get_retrieval_top_k()]
+            print("Selection mode: image semantic")
+
+        if not final_results:
+            final_results = semantic_ids[:get_retrieval_top_k()]
 
         # ── Step 5: Compute metrics ───────────────────────────────────────
 
@@ -265,6 +381,18 @@ def evaluate_reranked_retrieval(
             "ndcg@5": ndcg5,
             "retrieved": final_results[:3],  # First 3 for inspection
         }
+        per_query_rows.append(
+            {
+                "qid": i,
+                "query": query_text,
+                "modality": modality,
+                "p@3": p3,
+                "r@5": r5,
+                "ndcg@5": ndcg5,
+                "relevant_count": len(relevant_ids),
+                "retrieved": final_results,
+            }
+        )
 
         all_p3.append(p3)
         all_r5.append(r5)
@@ -309,6 +437,7 @@ def evaluate_reranked_retrieval(
             "mean_mrr": mean_mrr,
         },
         "per_query": metrics_per_query,
+        "per_query_rows": per_query_rows,
     }
 
 

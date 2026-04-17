@@ -138,7 +138,7 @@ def main() -> None:
     if image_paths:
         ie = ImageEmbedder()
         print(f"  Device : {ie.device}")
-        image_embeddings = ie.encode(image_paths, batch_size=4)
+        image_embeddings, valid_image_paths = ie.encode(image_paths, batch_size=4)
         report("Image embeddings", image_embeddings)
 
         # Cross-modal bonus: encode a text query into CLIP space
@@ -149,7 +149,7 @@ def main() -> None:
         print(f"    text query shape  : {q_emb.shape}")
         print(f"    text query norm   : {np.linalg.norm(q_emb[0]):.6f}")
         dots = image_embeddings @ q_emb[0]
-        for i, (path, score) in enumerate(zip(image_paths, dots)):
+        for i, (path, score) in enumerate(zip(valid_image_paths, dots)):
             print(f"    cos_sim[{i}] = {score:.4f}  ({Path(path).name})")
     else:
         print("  Skipped — no valid image paths found.")

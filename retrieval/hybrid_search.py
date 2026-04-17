@@ -59,6 +59,7 @@ from embeddings.text_embedder  import TextEmbedder   # noqa: E402
 from embeddings.code_embedder  import CodeEmbedder   # noqa: E402
 from embeddings.image_embedder import ImageEmbedder  # noqa: E402
 from indexing.faiss_index      import FaissIndex     # noqa: E402
+from retrieval.code_query_enhancements import apply_code_metadata_boost, normalize_code_query  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Default paths
@@ -298,6 +299,7 @@ class HybridSearchEngine:
         image_embedder: ImageEmbedder,
         text_bm25:      WhooshBM25Index,
         code_bm25:      WhooshBM25Index,
+        code_meta_by_chunk_id: dict[str, dict] | None = None,
         rrf_k:          int = 60,
     ) -> None:
         self._text_faiss    = text_faiss
@@ -308,6 +310,7 @@ class HybridSearchEngine:
         self._image_emb     = image_embedder
         self._text_bm25     = text_bm25
         self._code_bm25     = code_bm25
+        self._code_meta_by_chunk_id = code_meta_by_chunk_id or {}
         self._rrf_k         = rrf_k
 
     # ── Factory ───────────────────────────────────────────────────────────
@@ -358,18 +361,24 @@ class HybridSearchEngine:
         else:
             text_bm25.load()
 
+        code_chunks: list[dict] = []
+        if CHUNKED_CODE_FILE.exists():
+            code_chunks = _load_json(CHUNKED_CODE_FILE)
+
         if rebuild_bm25 or not whoosh_index.exists_in(str(WHOOSH_CODE_DIR)):
             print("[HybridSearchEngine] Building Whoosh code index ...")
-            code_chunks = _load_json(CHUNKED_CODE_FILE)
             code_bm25.build(code_chunks, content_field="code", aux_field="function_name")
         else:
             code_bm25.load()
+
+        code_meta_by_chunk_id = {row.get("chunk_id"): row for row in code_chunks if row.get("chunk_id")}
 
         print("[HybridSearchEngine] Ready.\n")
         return cls(
             text_faiss, code_faiss, image_faiss,
             text_emb, code_emb, image_emb,
             text_bm25, code_bm25,
+            code_meta_by_chunk_id=code_meta_by_chunk_id,
             rrf_k=rrf_k,
         )
 
@@ -415,11 +424,13 @@ class HybridSearchEngine:
                 bm25_index=self._text_bm25,
             )
         elif modality == "code":
+            expanded_query = normalize_code_query(query)
             return self._hybrid_text_or_code(
-                query, top_k,
+                expanded_query, top_k,
                 faiss_index=self._code_faiss,
                 embed_fn=lambda q: self._code_emb.encode([q], batch_size=get_batch_size()),
                 bm25_index=self._code_bm25,
+                code_meta_by_chunk_id=self._code_meta_by_chunk_id,
             )
         elif modality == "image":
             return self._semantic_only(
@@ -442,6 +453,7 @@ class HybridSearchEngine:
         faiss_index: FaissIndex,
         embed_fn,
         bm25_index:  WhooshBM25Index,
+        code_meta_by_chunk_id: dict[str, dict] | None = None,
         fetch_k:     int = 20,
     ) -> list[tuple[str, float]]:
         """Fetch `fetch_k` candidates from each system, fuse, return top_k."""
@@ -450,6 +462,10 @@ class HybridSearchEngine:
         if vec.ndim == 2:
             vec = vec[0]
         semantic = faiss_index.search(vec, top_k=fetch_k)
+
+        # Metadata-based boosting is applied only for code candidates.
+        if code_meta_by_chunk_id:
+            semantic = apply_code_metadata_boost(query, semantic, code_meta_by_chunk_id)
 
         # Lexical (BM25)
         lexical = bm25_index.search(query, top_k=fetch_k)

@@ -1,8 +1,13 @@
-"""Central project configuration for local sample mode and Kaggle main mode."""
+"""Central project configuration for local sample mode, Kaggle main mode, and local btp mode."""
+
+try:
+    import torch
+except Exception:  # pragma: no cover
+    torch = None
 
 
 class Config:
-    DATASET = "sample"  # "sample" or "main"
+    DATASET = "btp"  # "sample", "main", or "btp"
 
     PATHS = {
         "sample": {
@@ -13,21 +18,28 @@ class Config:
             "data": "/kaggle/working/data_main/",
             "indexes": "/kaggle/working/indexes_main/",
         },
+        "btp": {
+            "data": "data_btp/",
+            "indexes": "indexes_btp/",
+        },
     }
 
     CHUNK_SIZE = {
         "sample": 512,
         "main": 256,
+        "btp": 256,
     }
 
     BATCH_SIZE = {
         "sample": 8,
         "main": 32,
+        "btp": 128,
     }
 
     DEVICE = {
         "sample": "cpu",
         "main": "cuda",
+        "btp": "cpu",
     }
 
     MODELS = {
@@ -40,10 +52,17 @@ class Config:
         },
         "main": {
             "text_embedding": "BAAI/bge-large-en",
-            "code_embedding": "Salesforce/codet5p-110m-embedding",
+            "code_embedding": "microsoft/codebert-base",
             "image_embedding": "openai/clip-vit-base-patch32",
             "reranker": "BAAI/bge-reranker-large",
             "llm": "google/flan-t5-xl",
+        },
+        "btp": {
+            "text_embedding": "BAAI/bge-small-en",
+            "code_embedding": "microsoft/codebert-base",
+            "image_embedding": "openai/clip-vit-base-patch32",
+            "reranker": "BAAI/bge-reranker-large",
+            "llm": "google/flan-t5-large",
         },
         # "main": {
         #     "text_embedding": "BAAI/bge-large-en",
@@ -57,11 +76,13 @@ class Config:
     RETRIEVAL_TOP_K = {
         "sample": 5,
         "main": 10,
+        "btp": 10,
     }
 
     RERANK_TOP_K = {
         "sample": 10,
         "main": 20,
+        "btp": 20,
     }
 
 
@@ -74,7 +95,10 @@ def get_model(name):
 
 
 def get_device():
-    return Config.DEVICE[Config.DATASET]
+    device = Config.DEVICE[Config.DATASET]
+    if device == "cuda" and (torch is None or not torch.cuda.is_available()):
+        return "cpu"
+    return device
 
 
 def get_batch_size():

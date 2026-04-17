@@ -62,6 +62,7 @@ data_main/raw_/**
 !data_main/**/
 !data_main/**/.gitkeep
 
+data_btp
 # Keep the backup snapshot out of git entirely.
 data_main/raw_/
 
@@ -70,6 +71,7 @@ data_main/raw_/
 # =============================================================================
 indexes/faiss_*_idmap.json
 indexes_main/faiss_*_idmap.json
+indexes_btp
 
 # =============================================================================
 # HuggingFace / model caches  (large, downloaded on demand)
@@ -139,5 +141,8 @@ _nonascii.txt
 
 
 p2_codebase.zip
+data_btp.zip
 fintech_data.zip
 x.md
+
+.hf_cache

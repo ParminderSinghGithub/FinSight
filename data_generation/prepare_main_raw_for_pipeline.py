@@ -117,11 +117,61 @@ def _image_dimensions(path: Path) -> tuple[int | None, int | None]:
 
 
 def _build_image_caption(source_path: Path) -> str:
+    """
+    Generate a meaningful caption from filename and visual hint keywords.
+    
+    Examples:
+    - "roc_curve.png" → "ROC curve plot"
+    - "confusion_matrix.png" → "Confusion matrix visualization"
+    - "feature_importance.png" → "Feature importance chart"
+    """
+    filename = source_path.stem.lower()
     low = str(source_path).lower().replace("\\", "/")
-    tags = [k for k in sorted(VISUAL_HINT_KEYWORDS) if k in low]
-    if tags:
-        return f"Auto-discovered visualization asset from repository path ({', '.join(tags[:4])})."
-    return "Auto-discovered image asset from repository source code tree."
+    
+    # Map visual hint keywords to human-readable descriptions
+    keyword_descriptions = {
+        "roc": "ROC curve",
+        "pr_curve": "Precision-recall curve",
+        "precision_recall": "Precision-recall plot",
+        "confusion": "Confusion matrix",
+        "heatmap": "Heatmap visualization",
+        "scatter": "Scatter plot",
+        "histogram": "Histogram",
+        "hist": "Histogram",
+        "lineplot": "Line plot",
+        "barplot": "Bar plot",
+        "plot": "Plot",
+        "chart": "Chart",
+        "graph": "Graph",
+        "figure": "Figure",
+        "viz": "Visualization",
+        "visual": "Visualization",
+        "dashboard": "Dashboard",
+    }
+    
+    # Extract keywords from filename and path
+    visual_type = None
+    found_keywords = []
+    
+    for keyword in sorted(VISUAL_HINT_KEYWORDS):
+        if keyword in low:
+            found_keywords.append(keyword)
+            if keyword in keyword_descriptions and not visual_type:
+                visual_type = keyword_descriptions[keyword]
+    
+    # If we found a specific visual type, use it
+    if visual_type:
+        return f"{visual_type} visualization"
+    
+    # Otherwise use extracted keywords to build a description
+    if found_keywords:
+        primary_keyword = found_keywords[0]
+        desc = keyword_descriptions.get(primary_keyword, primary_keyword.replace("_", " ").title())
+        return f"{desc} visualization"
+    
+    # Fallback: use filename
+    readable_name = filename.replace("_", " ").replace("-", " ").title()
+    return f"{readable_name} visualization asset"
 
 
 def _normalize_text(value: str) -> str:

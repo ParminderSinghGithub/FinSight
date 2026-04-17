@@ -52,7 +52,7 @@ def precision_at_k(
         >>> precision_at_k(["a","b","c","d"], ["a","c"], k=4)
         0.5   # 2 relevant items in top-4 → 2/4
     """
-    if k <= 0 or not retrieved_ids or not relevant_ids:
+    if k <= 0 or len(retrieved_ids) == 0 or len(relevant_ids) == 0:
         return 0.0
 
     relevant_set = set(relevant_ids)
@@ -94,7 +94,7 @@ def recall_at_k(
         >>> recall_at_k(["a","b","c","d"], ["a","c"], k=4)
         1.0   # found both relevant items in top-4
     """
-    if k <= 0 or not retrieved_ids or not relevant_ids:
+    if k <= 0 or len(retrieved_ids) == 0 or len(relevant_ids) == 0:
         return 0.0
 
     relevant_set = set(relevant_ids)
@@ -148,7 +148,7 @@ def mean_reciprocal_rank(
         # Query 2: first relevant at rank 3 → RR=0.333
         # MRR = (0.5 + 0.333) / 2 ≈ 0.417
     """
-    if not all_results and not all_relevant:
+    if len(all_results) == 0:
         return 0.0
 
     if len(all_results) != len(all_relevant):
@@ -159,6 +159,9 @@ def mean_reciprocal_rank(
 
     total_rr = 0.0
     for retrieved_ids, relevant_ids in zip(all_results, all_relevant):
+        if len(retrieved_ids) == 0:
+            continue
+
         relevant_set = set(relevant_ids)
         for rank, item in enumerate(retrieved_ids, start=1):
             if item in relevant_set:
@@ -209,7 +212,7 @@ def ndcg_at_k(
         # IDCG = 1/log2(2) + 1/log2(3) ≈ 1.0 + 0.6309 = 1.6309
         # NDCG ≈ 0.9197
     """
-    if k <= 0 or not retrieved_ids or not relevant_ids:
+    if k <= 0 or len(retrieved_ids) == 0 or len(relevant_ids) == 0:
         return 0.0
 
     relevant_set = set(relevant_ids)

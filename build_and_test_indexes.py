@@ -15,6 +15,7 @@ import json
 import sys
 import warnings
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 
@@ -58,6 +59,14 @@ def banner(msg: str) -> None:
     print(f"\nStep: {msg}")
 
 
+def timed(label: str, fn):
+    start = perf_counter()
+    result = fn()
+    elapsed = perf_counter() - start
+    print(f"[{label}] done in {elapsed:.2f}s", flush=True)
+    return result
+
+
 def load_json(path: Path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -70,15 +79,20 @@ def print_results(results: list[tuple[str, float]], label: str) -> None:
         print(f"{rank:<5} {chunk_id:<15} {score:>8.4f}")
 
 
+def index_assets_exist(index_path: Path, idmap_path: Path) -> bool:
+    return index_path.exists() and idmap_path.exists()
+
+
 def main() -> None:
+    global_start = perf_counter()
     # -----------------------------------------------------------------------
     # 1 – Load data
     # -----------------------------------------------------------------------
     banner("STEP 1 / 4  —  Loading chunked data")
 
-    raw_text  = load_json(CHUNKED_TEXT_FILE)
-    raw_code  = load_json(CHUNKED_CODE_FILE)
-    raw_image = load_json(IMAGE_META_FILE)
+    raw_text  = timed("load chunked_text.json", lambda: load_json(CHUNKED_TEXT_FILE))
+    raw_code  = timed("load chunked_code.json", lambda: load_json(CHUNKED_CODE_FILE))
+    raw_image = timed("load image_metadata.json", lambda: load_json(IMAGE_META_FILE))
 
     # Normalise: chunked files may be list or dict (empty = {})
     text_chunks   = raw_text  if isinstance(raw_text,  list) else []
@@ -93,6 +107,7 @@ def main() -> None:
 
     image_ids   = [r["doc_id"]           for r in image_records]
     image_paths = [Path(r["source_file"]) for r in image_records]
+    image_id_by_path = {str(path): doc_id for doc_id, path in zip(image_ids, image_paths)}
 
     print(f"Text chunks: {len(text_chunks)}")
     print(f"Code chunks: {len(code_chunks)}")
@@ -103,57 +118,94 @@ def main() -> None:
     # -----------------------------------------------------------------------
     banner("STEP 2 / 4  —  Loading embedders")
 
-    text_embedder  = TextEmbedder()
-    code_embedder  = CodeEmbedder()
-    image_embedder = ImageEmbedder()
+    text_embedder  = timed("text embedder init", lambda: TextEmbedder())
+    code_embedder  = timed("code embedder init", lambda: CodeEmbedder())
+    image_embedder = timed("image embedder init", lambda: ImageEmbedder())
 
     # -----------------------------------------------------------------------
     # 3 – Generate embeddings
     # -----------------------------------------------------------------------
     banner("STEP 3 / 4  —  Generating embeddings")
 
-    print(f"\nEncoding text chunks: {len(text_texts)}")
-    text_vecs = text_embedder.encode(text_texts, batch_size=get_batch_size())
-    print(f"Text embedding shape: {text_vecs.shape}")
+    text_exists = index_assets_exist(FAISS_TEXT_INDEX, FAISS_TEXT_IDMAP)
+    code_exists = index_assets_exist(FAISS_CODE_INDEX, FAISS_CODE_IDMAP)
+    image_exists = index_assets_exist(FAISS_IMAGE_INDEX, FAISS_IMAGE_IDMAP)
 
-    print(f"\nEncoding code chunks: {len(code_texts)}")
-    code_vecs = code_embedder.encode(code_texts, batch_size=get_batch_size())
-    print(f"Code embedding shape: {code_vecs.shape}")
+    text_index = FaissIndex(embedding_dim=1024)
+    code_index = FaissIndex(embedding_dim=768)
+    image_index = FaissIndex(embedding_dim=512)
 
-    print(f"\nEncoding images: {len(image_paths)}")
-    image_vecs = image_embedder.encode(image_paths, batch_size=get_batch_size())
-    print(f"Image embedding shape: {image_vecs.shape}")
+    text_vecs = code_vecs = image_vecs = None
+
+    if text_exists:
+        print("\nText index already exists; reusing saved artifacts.", flush=True)
+        timed("load text index", lambda: text_index.load(FAISS_TEXT_INDEX, FAISS_TEXT_IDMAP))
+    else:
+        print(f"\nEncoding text chunks: {len(text_texts)}", flush=True)
+        text_vecs = timed(
+            "text embeddings",
+            lambda: text_embedder.encode(text_texts, batch_size=get_batch_size(), show_progress=True),
+        )
+        print(f"Text embedding shape: {text_vecs.shape}")
+
+    if code_exists:
+        print("\nCode index already exists; reusing saved artifacts.", flush=True)
+        timed("load code index", lambda: code_index.load(FAISS_CODE_INDEX, FAISS_CODE_IDMAP))
+    else:
+        print(f"\nEncoding code chunks: {len(code_texts)}", flush=True)
+        code_vecs = timed(
+            "code embeddings",
+            lambda: code_embedder.encode(code_texts, batch_size=get_batch_size()),
+        )
+        print(f"Code embedding shape: {code_vecs.shape}")
+
+    if image_exists:
+        print("\nImage index already exists; reusing saved artifacts.", flush=True)
+        timed("load image index", lambda: image_index.load(FAISS_IMAGE_INDEX, FAISS_IMAGE_IDMAP))
+    else:
+        print(f"\nEncoding images: {len(image_paths)}", flush=True)
+        image_vecs, valid_image_paths = timed(
+            "image embeddings",
+            lambda: image_embedder.encode(image_paths, batch_size=get_batch_size()),
+        )
+        valid_image_ids = [image_id_by_path[str(path)] for path in valid_image_paths]
+        print(f"Image embedding shape: {image_vecs.shape}")
+        print(f"Valid image IDs after filtering: {len(valid_image_ids)}")
 
     # Sanity-check norms (should all be ~1.0 for unit vectors)
-    print(
-        f"\nNorm checks: "
-        f"text[0]={np.linalg.norm(text_vecs[0]):.4f}  "
-        f"code[0]={np.linalg.norm(code_vecs[0]):.4f}  "
-        f"image[0]={np.linalg.norm(image_vecs[0]):.4f}"
-    )
+    if text_vecs is not None and code_vecs is not None and image_vecs is not None:
+        print(
+            f"\nNorm checks: "
+            f"text[0]={np.linalg.norm(text_vecs[0]):.4f}  "
+            f"code[0]={np.linalg.norm(code_vecs[0]):.4f}  "
+            f"image[0]={np.linalg.norm(image_vecs[0]):.4f}"
+        )
 
     # -----------------------------------------------------------------------
     # 4 – Build, populate, and save FAISS indexes
     # -----------------------------------------------------------------------
     banner("STEP 4a / 4  —  Building text index")
 
-    text_index = FaissIndex(embedding_dim=text_vecs.shape[1])
-    text_index.add_embeddings(text_vecs, text_ids)
-    text_index.save(FAISS_TEXT_INDEX, FAISS_TEXT_IDMAP)
+    if not text_exists:
+        text_index = FaissIndex(embedding_dim=text_vecs.shape[1])
+        timed("add text vectors", lambda: text_index.add_embeddings(text_vecs, text_ids))
+        timed("save text index", lambda: text_index.save(FAISS_TEXT_INDEX, FAISS_TEXT_IDMAP))
     print(f"Text index summary: {text_index}")
 
     banner("STEP 4b / 4  —  Building code index")
 
-    code_index = FaissIndex(embedding_dim=code_vecs.shape[1])
-    code_index.add_embeddings(code_vecs, code_ids)
-    code_index.save(FAISS_CODE_INDEX, FAISS_CODE_IDMAP)
+    if not code_exists:
+        code_index = FaissIndex(embedding_dim=code_vecs.shape[1])
+        timed("add code vectors", lambda: code_index.add_embeddings(code_vecs, code_ids))
+        timed("save code index", lambda: code_index.save(FAISS_CODE_INDEX, FAISS_CODE_IDMAP))
     print(f"Code index summary: {code_index}")
 
     banner("STEP 4c / 4  —  Building image index")
 
-    image_index = FaissIndex(embedding_dim=image_vecs.shape[1])
-    image_index.add_embeddings(image_vecs, image_ids)
-    image_index.save(FAISS_IMAGE_INDEX, FAISS_IMAGE_IDMAP)
+    if not image_exists:
+        image_index = FaissIndex(embedding_dim=image_vecs.shape[1])
+        timed("add image vectors", lambda: image_index.add_embeddings(image_vecs, valid_image_ids))
+        timed("save image index", lambda: image_index.save(FAISS_IMAGE_INDEX, FAISS_IMAGE_IDMAP))
     print(f"Image index summary: {image_index}")
 
     # -----------------------------------------------------------------------
@@ -217,6 +269,7 @@ def main() -> None:
         idx.load(path, path.with_suffix("").parent / (path.stem + "_idmap.json"))
         print(f"{path.name:<35} {idx.size:>8}")
     print()
+    print(f"Total indexing pipeline time: {perf_counter() - global_start:.2f}s")
 
 
 if __name__ == "__main__":

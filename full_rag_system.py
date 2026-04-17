@@ -192,7 +192,7 @@ class FullRAGSystem:
         image_store = [{"chunk_id": cid, "text": f"Image result: {cid}"} for cid in chunk_ids]
         return prepare_text_chunks(chunk_ids, image_store)
 
-    def run_query(self, query: str, modality: str) -> dict[str, Any]:
+    def run_query(self, query: str, modality: str, use_gemini: bool = False) -> dict[str, Any]:
         """
         Run one full query through the RAG system.
 
@@ -222,7 +222,11 @@ class FullRAGSystem:
         generation_limit = min(retrieval_top_k, 5)
         generation_chunks = self._prepare_generation_chunks(final_ids[:generation_limit], modality)
 
-        generation_result = self.generator.generate_answer(query, generation_chunks)
+        generation_result = self.generator.generate_answer(
+            query,
+            generation_chunks,
+            use_gemini=use_gemini,
+        )
 
         return {
             "query": query,

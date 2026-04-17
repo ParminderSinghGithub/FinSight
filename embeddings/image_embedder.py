@@ -22,6 +22,11 @@ import torch.nn.functional as F
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
+try:
+    from tqdm.auto import tqdm
+except Exception:  # pragma: no cover
+    tqdm = None
+
 from config.settings import get_batch_size, get_device, get_model
 
 
@@ -66,7 +71,7 @@ class ImageEmbedder:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     @staticmethod
-    def _load_image(path: str | Path) -> Image.Image:
+    def _load_image(path: str | Path) -> Image.Image | None:
         """
         Open an image file and convert it to RGB.
 
@@ -77,15 +82,24 @@ class ImageEmbedder:
             path: File path to the image.
 
         Returns:
-            PIL Image in RGB mode.
-
-        Raises:
-            FileNotFoundError: If the path does not exist.
+            PIL Image in RGB mode, or None if the image cannot be loaded.
+            Unsupported formats (e.g., SVG) and corrupted files return None
+            instead of raising an exception.
         """
         path = Path(path)
         if not path.exists():
-            raise FileNotFoundError(f"Image not found: {path}")
-        return Image.open(path).convert("RGB")
+            print(f"[ImageEmbedder] Skipped (not found): {path}")
+            return None
+        
+        try:
+            img = Image.open(path)
+            return img.convert("RGB")
+        except (OSError, IOError, Image.UnidentifiedImageError) as e:
+            print(f"[ImageEmbedder] Skipped (cannot load): {path} ({type(e).__name__})")
+            return None
+        except Exception as e:
+            print(f"[ImageEmbedder] Skipped (unexpected error): {path} ({type(e).__name__}: {e})")
+            return None
 
     # ── Encoding ──────────────────────────────────────────────────────────────
 
@@ -93,7 +107,7 @@ class ImageEmbedder:
         self,
         image_paths: list[str | Path],
         batch_size: int | None = None,
-    ) -> np.ndarray:
+    ) -> tuple[np.ndarray, list[Path]]:
         """
         Encode a list of image file paths into L2-normalised embeddings.
 
@@ -101,50 +115,90 @@ class ImageEmbedder:
         expected input resolution), passed through the vision encoder, and
         L2-normalised.
 
+        Invalid or unsupported image files (e.g., corrupted files, SVG format)
+        are silently skipped with a log message. Only valid images are encoded.
+
         Args:
             image_paths: List of paths to image files (PNG, JPEG, etc.).
             batch_size:  Images processed per forward pass.  Reduce if OOM.
 
         Returns:
-            Float32 numpy array of shape (len(image_paths), 512).
-            Each row is L2-normalised.
-
-        Raises:
-            FileNotFoundError: If any image path does not exist.
+            A tuple of:
+            1) Float32 numpy array of shape (num_valid_images, 512), L2-normalised.
+            2) List of valid image paths aligned 1:1 with embedding rows.
         """
         if not image_paths:
-            return np.empty((0, self.embedding_dim), dtype=np.float32)
+            return np.empty((0, self.embedding_dim), dtype=np.float32), []
 
         if batch_size is None:
             batch_size = get_batch_size()
 
         all_embeddings = []
+        valid_paths_all: list[Path] = []
+        total_batches = (len(image_paths) + batch_size - 1) // batch_size
+        iterator = range(0, len(image_paths), batch_size)
+        if tqdm is not None:
+            iterator = tqdm(
+                iterator,
+                total=total_batches,
+                desc="Image embedding batches",
+                unit="batch",
+            )
 
-        for start in range(0, len(image_paths), batch_size):
+        for batch_idx, start in enumerate(iterator, 1):
             batch_paths = image_paths[start: start + batch_size]
             images = [self._load_image(p) for p in batch_paths]
+            
+            # Keep only valid image/path pairs so IDs can stay aligned upstream.
+            valid_pairs = [
+                (Path(path), img)
+                for path, img in zip(batch_paths, images)
+                if img is not None
+            ]
+            
+            # Skip this batch if all images failed to load
+            if not valid_pairs:
+                continue
+
+            valid_batch_paths = [p for p, _ in valid_pairs]
+            valid_images = [img for _, img in valid_pairs]
 
             # CLIPProcessor handles resizing, centre-cropping, and pixel
             # normalisation using the model's expected mean/std values.
             inputs = self.processor(
-                images=images,
+                images=valid_images,
                 return_tensors="pt",
                 padding=True,
             )
             pixel_values = inputs["pixel_values"].to(self.device)
 
             with torch.no_grad():
-                # get_image_features() extracts the [CLS]-like vision embedding
-                # and projects it into the shared CLIP embedding space.
-                image_features = self.model.get_image_features(
-                    pixel_values=pixel_values
-                )
+                # Full forward pass through CLIP vision encoder
+                outputs = self.model.vision_model(pixel_values=pixel_values)
+                
+                # Extract the image embeddings tensor from the output object
+                # CLIP returns a BaseModelOutputWithPooling which contains pooler_output
+                image_embeds = outputs.pooler_output
+                
+                # Project into shared CLIP embedding space
+                image_features = self.model.visual_projection(image_embeds)
 
             # L2 normalise for cosine-equivalent dot-product retrieval
             normalised = F.normalize(image_features, p=2, dim=1)
             all_embeddings.append(normalised.cpu().numpy())
+            valid_paths_all.extend(valid_batch_paths)
 
-        return np.vstack(all_embeddings).astype(np.float32)
+            if tqdm is None and (batch_idx == total_batches or batch_idx % 10 == 0):
+                print(f"[ImageEmbedder] Progress: {batch_idx}/{total_batches} batches", flush=True)
+
+        # Return empty array if no valid images were encoded
+        if not all_embeddings:
+            return np.empty((0, self.embedding_dim), dtype=np.float32), []
+
+        embeddings = np.vstack(all_embeddings).astype(np.float32)
+        if len(embeddings) != len(valid_paths_all):
+            raise RuntimeError("Image embeddings/path alignment mismatch")
+        return embeddings, valid_paths_all
 
     # ── Cross-modal helpers ───────────────────────────────────────────────────
 
@@ -172,10 +226,18 @@ class ImageEmbedder:
         attention_mask = inputs["attention_mask"].to(self.device)
 
         with torch.no_grad():
-            text_features = self.model.get_text_features(
+            # Full forward pass through CLIP text encoder
+            outputs = self.model.text_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
             )
+            
+            # Extract the text embeddings tensor from the output object
+            # CLIP returns a BaseModelOutputWithPooling which contains pooler_output
+            text_embeds = outputs.pooler_output
+            
+            # Project into shared CLIP embedding space
+            text_features = self.model.text_projection(text_embeds)
 
         normalised = F.normalize(text_features, p=2, dim=1)
         return normalised.cpu().numpy().astype(np.float32)

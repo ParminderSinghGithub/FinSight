@@ -37,6 +37,7 @@ from embeddings.code_embedder         import CodeEmbedder   # noqa: E402
 from embeddings.image_embedder        import ImageEmbedder  # noqa: E402
 from indexing.faiss_index             import FaissIndex     # noqa: E402
 from config.settings                  import get_batch_size, get_path, get_retrieval_top_k  # noqa: E402
+from retrieval.code_query_enhancements import normalize_code_query  # noqa: E402
 from evaluation.retrieval_metrics     import (              # noqa: E402
     precision_at_k,
     recall_at_k,
@@ -75,7 +76,8 @@ def _embed(query: str, modality: str,
     if modality == "text":
         vec = te.encode_query(query)       # (1, 1024)
     elif modality == "code":
-        vec = ce.encode([query], batch_size=get_batch_size())   # (1, 768)
+        expanded_query = normalize_code_query(query)
+        vec = ce.encode([expanded_query], batch_size=get_batch_size())   # (1, 768)
     elif modality == "image":
         vec = ie.encode_text_query(query)  # (1, 512)
     else:
@@ -90,7 +92,7 @@ def _index_for(modality: str,
     return {"text": text_idx, "code": code_idx, "image": image_idx}[modality]
 
 
-def main() -> None:
+def main() -> dict:
     # -----------------------------------------------------------------------
     # 1 – Load queries
     # -----------------------------------------------------------------------
@@ -128,6 +130,7 @@ def main() -> None:
     scored_queries   = []
     all_retrieved    = []
     all_relevant_mrr = []
+    per_query_rows   = []
 
     col_w = 46
     header = (
@@ -162,8 +165,22 @@ def main() -> None:
             n5_s  = f"{n5:.3f}"
             gt_s  = str(len(relevant_ids))
         else:
+            p3 = r5 = n5 = None
             p3_s = r5_s = n5_s = "  n/a"
             gt_s = "none"
+
+        per_query_rows.append(
+            {
+                "qid": i,
+                "query": query,
+                "modality": modality,
+                "p@3": p3,
+                "r@5": r5,
+                "ndcg@5": n5,
+                "relevant_count": len(relevant_ids),
+                "retrieved": retrieved_ids,
+            }
+        )
 
         q_display = query if len(query) <= col_w else query[:col_w - 3] + "..."
         print(
@@ -184,6 +201,17 @@ def main() -> None:
             f"  Populate 'relevant_ids' in {QUERIES_FILE.relative_to(PROJECT_ROOT)}\n"
             "  and re-run this script."
         )
+        result = {
+            "global": {
+                "mean_p@3": None,
+                "mean_r@5": None,
+                "mean_ndcg@5": None,
+                "mean_mrr": None,
+                "evaluated": 0,
+                "total": len(queries),
+            },
+            "per_query": per_query_rows,
+        }
     else:
         mean_p3   = sum(q["p3"] for q in scored_queries) / n
         mean_r5   = sum(q["r5"] for q in scored_queries) / n
@@ -198,7 +226,19 @@ def main() -> None:
         print(f"{'Mean NDCG@'+str(NDCG_K):<30} {mean_n5:>8.4f}")
         print(f"{'MRR (over top-'+str(TOP_K)+')':<30} {mrr:>8.4f}")
         print()
+        result = {
+            "global": {
+                "mean_p@3": mean_p3,
+                "mean_r@5": mean_r5,
+                "mean_ndcg@5": mean_n5,
+                "mean_mrr": mrr,
+                "evaluated": n,
+                "total": len(queries),
+            },
+            "per_query": per_query_rows,
+        }
     print()
+    return result
 
 
 if __name__ == "__main__":
