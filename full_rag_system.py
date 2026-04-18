@@ -232,6 +232,8 @@ class FullRAGSystem:
             "query": query,
             "answer": generation_result["answer"],
             "sources": generation_result["used_chunks"],
+            "generation_mode": generation_result.get("generation_mode", "local-flan"),
+            "generation_note": generation_result.get("generation_note", ""),
         }
 
 

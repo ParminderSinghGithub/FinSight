@@ -17,6 +17,35 @@ FALLBACK_SEQ2SEQ_MODEL = "google/flan-t5-large"
 HF_CACHE_DIR = Path(__file__).resolve().parent / ".hf_cache"
 
 
+def _load_env_file() -> None:
+	"""Load key=value pairs from .env into process env if not already set."""
+	env_path = Path(__file__).resolve().parent / ".env"
+	if not env_path.exists():
+		return
+
+	for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+		line = raw_line.strip()
+		if not line or line.startswith("#") or "=" not in line:
+			continue
+		key, value = line.split("=", 1)
+		key = key.strip()
+		value = value.strip().strip('"').strip("'")
+		if key and key not in os.environ:
+			os.environ[key] = value
+
+
+_load_env_file()
+
+
+def _runtime_signature() -> tuple[float, float]:
+	base = Path(__file__).resolve().parent
+	rag_path = base / "generation" / "rag_pipeline.py"
+	system_path = base / "full_rag_system.py"
+	rag_mtime = rag_path.stat().st_mtime if rag_path.exists() else 0.0
+	system_mtime = system_path.stat().st_mtime if system_path.exists() else 0.0
+	return rag_mtime, system_mtime
+
+
 st.set_page_config(
 	page_title="FinSight",
 	page_icon="📈",
@@ -94,6 +123,11 @@ def _inject_styles() -> None:
 				font-size: 1.02rem;
 				line-height: 1.65;
 				white-space: pre-wrap;
+				overflow-wrap: anywhere;
+				word-break: break-word;
+				max-height: 520px;
+				overflow-y: auto;
+				padding-right: 0.35rem;
 				margin-top: 0.35rem;
 			}
 
@@ -173,9 +207,17 @@ def _inject_styles() -> None:
 
 
 def initialize_rag_system() -> Any | None:
+	current_signature = _runtime_signature()
+	cached_signature = st.session_state.get("rag_runtime_signature")
+	if cached_signature != current_signature:
+		st.session_state.pop("rag_system", None)
+		st.session_state.pop("rag_init_error", None)
+		st.session_state["rag_runtime_signature"] = current_signature
+
 	if "rag_system" in st.session_state:
 		existing_system = st.session_state["rag_system"]
 		if existing_system is not None:
+			st.session_state.pop("rag_init_error", None)
 			return existing_system
 		# A previous attempt failed and stored None; retry on the next rerun.
 		st.session_state.pop("rag_system", None)
@@ -204,6 +246,7 @@ def initialize_rag_system() -> Any | None:
 		with st.spinner("Initializing system..."):
 			system = FullRAGSystem()
 			st.session_state.rag_system = StreamlitRAGAdapter(system)
+			st.session_state["rag_runtime_signature"] = current_signature
 		st.session_state.pop("rag_init_error", None)
 		return st.session_state.rag_system
 	except Exception as exc:
@@ -219,6 +262,11 @@ def _configure_hf_cache() -> None:
 	os.environ.setdefault("HF_HOME", cache_path)
 	os.environ.setdefault("HUGGINGFACE_HUB_CACHE", cache_path)
 	os.environ.setdefault("TRANSFORMERS_CACHE", cache_path)
+
+
+def _has_gemini_key() -> bool:
+	key = os.getenv("GEMINI_API_KEY", "").strip()
+	return bool(key and "your_" not in key.lower())
 
 
 def _infer_modality(query: str) -> str:
@@ -303,7 +351,7 @@ class StreamlitRAGAdapter:
 			"used_chunks": used_chunks,
 			"retrieved_chunks": self._materialize_chunks(used_chunks),
 			"modality": modality,
-			"mode": "Gemini Enhanced" if use_gemini else "Standard Search",
+			"mode": result.get("generation_mode", "gemini" if use_gemini else "local-flan"),
 		}
 
 
@@ -380,10 +428,16 @@ Best suited for:
 			unsafe_allow_html=True,
 		)
 
+	if _has_gemini_key():
+		st.sidebar.caption("Gemini API: configured")
+	else:
+		st.sidebar.caption("Gemini API: not configured (Gemini mode will fall back to local model)")
+
 	error_msg = st.session_state.get("rag_init_error")
 	if error_msg:
 		st.sidebar.markdown("---")
 		st.sidebar.error("Initialization failed. Check logs and model assets.")
+		st.sidebar.caption(str(error_msg))
 
 
 def _normalize_result_payload(result: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -421,7 +475,6 @@ def display_answer(result: dict[str, Any]) -> None:
 	mode_used = result.get("mode", "Standard Search")
 
 	st.markdown("<div class='finsight-card'>", unsafe_allow_html=True)
-	st.markdown("<div class='finsight-label'>Answer</div>", unsafe_allow_html=True)
 	st.markdown(f"<div class='finsight-source'><b>Mode:</b> {html.escape(str(mode_used))}</div>", unsafe_allow_html=True)
 	st.markdown(
 		f"<div class='finsight-answer'>{html.escape(answer)}</div>",
